@@ -1,46 +1,56 @@
+"""
+Horsens Grocery Saver — Streamlit entry point.
+
+Reads a shopping list, uses Gemini AI to extract items, queries the
+Tjek (etilbudsavis) API for grocery discounts near Horsens, and
+presents the cheapest deals to the user.
+"""
+
 import streamlit as st
-import requests
-import google.generativeai as genai
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-TJEK_API_KEY = os.getenv("TJEK_API_KEY")
+from ui.components import render_store_filters
+from ui.pages import handle_clarify, handle_extract, handle_meat_clarify, handle_results, handle_search
 
+# ─── Page configuration ───
 st.set_page_config(page_title="Horsens Grocery Saver", layout="centered")
-
 st.title("🛒 Horsens Grocery Saver")
-st.info("Searching Lidl, Løvbjerg, Netto, & Føtex in 8700")
 
-# User Input
-user_list = st.text_area("What's on the list?", placeholder="e.g. 2 mælk, vin til 50 kr, smør...")
+# ─── Store filters ───
+selected_dealers = render_store_filters()
 
+# ─── User input ───
+user_list = st.text_area(
+    "What's on the list?",
+    placeholder="e.g. 2 mælk, vin til 50 kr, smør...",
+)
+
+# ─── Session state initialisation ───
+for key, default in [
+    ("phase", "input"),
+    ("clear_items", []),
+    ("ambiguous", {}),
+    ("results", None),
+    ("meat_prefs", {}),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+# ─── Button: Extract items ───
 if st.button("🚀 Find Cheapest Deals"):
-    if not user_list:
-        st.error("Write something first!")
-    else:
-        model = genai.GenerativeModel('gemini-2.5-flash')
+    handle_extract(user_list, selected_dealers)
 
-        ai_resp = model.generate_content(f"Extract items from this text: '{user_list}'. Return ONLY a Python list of strings.")
-        
-        try:
-            items = eval(ai_resp.text.strip().strip("`").replace("python", ""))
-            total_price = 0.0
+# ─── Phase: Clarification ───
+if st.session_state.phase == "clarify":
+    handle_clarify()
 
-            for item in items:
-                url = f"https://api.etilbudsavis.dk/v2/offers/search?query={item}&r_lat=55.8607&r_lng=9.8503&r_radius=5000"
-                data = requests.get(url, headers={"X-Api-Key": TJEK_API_KEY}).json()
+# ─── Phase: Meat clarification ───
+if st.session_state.phase == "meat_clarify":
+    handle_meat_clarify()
 
-                if data:
-                    best = min(data, key=lambda x: x['pricing']['price'])
-                    price = best['pricing']['price']
-                    total_price += price
-                    
-                    st.image(best['images']['thumb'], width=60)
-                    st.write(f"**{item.title()}**: {price} kr @ {best['branding']['name']}")
-                    st.divider()
+# ─── Phase: Search ───
+if st.session_state.phase == "search":
+    handle_search(selected_dealers)
 
-            st.metric("Total Cost", f"{total_price:.2f} DKK")
-        except:
-            st.error("Could not read list. Try again.")
+# ─── Phase: Display results ───
+if st.session_state.phase == "results" and st.session_state.results:
+    handle_results()
