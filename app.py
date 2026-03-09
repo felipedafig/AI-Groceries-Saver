@@ -9,7 +9,7 @@ presents the cheapest deals to the user.
 import streamlit as st
 
 from ui.components import render_store_filters
-from ui.pages import handle_clarify, handle_extract, handle_meat_clarify, handle_results, handle_search
+from ui.pages import handle_clarify, handle_extract, handle_meat_clarify, handle_milk_clarify, handle_results, handle_search
 
 # ─── Page configuration ───
 st.set_page_config(page_title="Horsens Grocery Saver", layout="centered")
@@ -31,6 +31,7 @@ for key, default in [
     ("ambiguous", {}),
     ("results", None),
     ("meat_prefs", {}),
+    ("milk_prefs", {}),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -46,6 +47,10 @@ if st.session_state.phase == "clarify":
 # ─── Phase: Meat clarification ───
 if st.session_state.phase == "meat_clarify":
     handle_meat_clarify()
+
+# ─── Phase: Milk clarification ───
+if st.session_state.phase == "milk_clarify":
+    handle_milk_clarify()
 
 # ─── Phase: Search ───
 if st.session_state.phase == "search":

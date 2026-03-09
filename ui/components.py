@@ -126,6 +126,26 @@ def render_meat_clarification(meat_items: list[str]) -> None:
         )
 
 
+def render_milk_clarification(milk_items: list[str]) -> None:
+    """Render radio buttons asking the user which Danish milk type they prefer."""
+    from services.offer_service import MILK_TYPES
+
+    st.subheader("🥛 Which Type of Milk?")
+    st.write(
+        "Danish milk comes in several standard types. "
+        "Pick your preferred fat content, or choose **Any** to see all deals."
+    )
+
+    options = ["Any"] + list(MILK_TYPES.keys())
+
+    for item in milk_items:
+        st.radio(
+            f"What type of **{item}** do you prefer?",
+            options,
+            key=f"milk_{item}",
+        )
+
+
 # ── private helpers ──────────────────────────────────────────────────
 
 

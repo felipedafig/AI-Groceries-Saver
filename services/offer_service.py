@@ -33,6 +33,17 @@ MEAT_TERMS: set[str] = {
     "steak", "bøf",
 }
 
+# ─── Milk type constants ────────────────────────────────────────────
+
+MILK_TERMS: set[str] = {"milk", "mælk"}
+
+MILK_TYPES: dict[str, str] = {
+    "Sødmælk (Whole, 3.5%)": "sødmælk",
+    "Letmælk (Semi-skimmed, 1.5%)": "letmælk",
+    "Minimælk (Low-fat, 0.5%)": "minimælk",
+    "Skummetmælk (Skimmed, 0.1%)": "skummetmælk",
+}
+
 PROCESSED_KEYWORDS: list[str] = [
     "nuggets", "breaded", "paneret",
     "frozen", "frost", "frossen",
@@ -128,6 +139,29 @@ def is_meat_item(query: str) -> bool:
     return query.lower().strip() in MEAT_TERMS
 
 
+def is_milk_item(query: str) -> bool:
+    """Return True if *query* looks like a generic milk search term."""
+    q = query.lower().strip()
+    return q in MILK_TERMS
+
+
+def filter_milk_offers(
+    offers: list[dict], preferred_type: str | None
+) -> list[dict]:
+    """Filter milk offers by the preferred Danish milk type.
+
+    If *preferred_type* is given, keep only offers whose heading contains
+    that type.  If nothing matches, return the original list so the user
+    still sees prices for other milk types.
+    """
+    if not preferred_type:
+        return offers
+    filtered = [
+        o for o in offers if preferred_type in o["heading"].lower()
+    ]
+    return filtered if filtered else offers
+
+
 def filter_processed_products(
     offers: list[dict], allow_processed: bool
 ) -> list[dict]:
@@ -170,6 +204,7 @@ def find_best_offers(
     items: list[str],
     nearby_ids: set[str],
     meat_prefs: dict[str, bool] | None = None,
+    milk_prefs: dict[str, str] | None = None,
 ) -> tuple[list[ItemResult], float]:
     """For each item find the best current and best future offer.
 
@@ -177,12 +212,15 @@ def find_best_offers(
         items: Grocery item names to search for.
         nearby_ids: Set of dealer IDs to restrict results.
         meat_prefs: Mapping of item→allow_processed for meat items.
+        milk_prefs: Mapping of item→preferred_type for milk items.
 
     Returns:
         A tuple of (item_results, total_estimated_price).
     """
     if meat_prefs is None:
         meat_prefs = {}
+    if milk_prefs is None:
+        milk_prefs = {}
 
     now = datetime.now(timezone.utc)
     total_price = 0.0
@@ -196,6 +234,11 @@ def find_best_offers(
         if is_meat_item(item):
             allow = meat_prefs.get(item, True)
             relevant = filter_processed_products(relevant, allow)
+
+        # Apply milk type filter
+        if is_milk_item(item):
+            preferred = milk_prefs.get(item)
+            relevant = filter_milk_offers(relevant, preferred)
 
         current, future = separate_current_and_future_offers(relevant, now)
 

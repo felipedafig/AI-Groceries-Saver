@@ -9,17 +9,21 @@ from services.ai_service import extract_grocery_items
 from services.offer_service import (
     find_best_offers,
     is_meat_item,
+    is_milk_item,
+    filter_milk_offers,
     search_offers,
     filter_relevant,
     filter_processed_products,
     separate_current_and_future_offers,
     find_best_current_offer,
     find_best_future_offer,
+    MILK_TYPES,
 )
 from services.store_service import get_nearby_stores
 from ui.components import (
     render_best_deals,
     render_meat_clarification,
+    render_milk_clarification,
     render_nearby_stores,
     render_total_price,
     render_upcoming_discounts,
@@ -46,6 +50,7 @@ def handle_extract(user_list: str, selected_dealers: list[str]) -> None:
     st.session_state.ambiguous = parsed["ambiguous"]
     st.session_state.results = None
     st.session_state.meat_prefs = {}
+    st.session_state.milk_prefs = {}
 
     st.session_state.phase = "clarify" if parsed["ambiguous"] else _next_phase_after_clarify()
     st.rerun()
@@ -74,12 +79,29 @@ def handle_meat_clarify() -> None:
 
     render_meat_clarification(meat_items)
 
-    if st.button("✅ Confirm Preferences"):
+    if st.button("✅ Confirm Meat Preferences"):
         prefs: dict[str, bool] = {}
         for item in meat_items:
             choice = st.session_state.get(f"meat_{item}", "Include processed products")
             prefs[item] = choice == "Include processed products"
         st.session_state.meat_prefs = prefs
+        st.session_state.phase = _next_phase_after_meat()
+        st.rerun()
+
+
+def handle_milk_clarify() -> None:
+    """Phase: ask for milk type preferences."""
+    milk_items = [i for i in st.session_state.clear_items if is_milk_item(i)]
+
+    render_milk_clarification(milk_items)
+
+    if st.button("✅ Confirm Milk Preferences"):
+        prefs: dict[str, str] = {}
+        for item in milk_items:
+            choice = st.session_state.get(f"milk_{item}", "Any")
+            if choice != "Any":
+                prefs[item] = MILK_TYPES[choice]
+        st.session_state.milk_prefs = prefs
         st.session_state.phase = "search"
         st.rerun()
 
@@ -102,9 +124,10 @@ def handle_search(selected_dealers: list[str]) -> None:
     else:
         nearby_ids = set(nearby.keys())
         meat_prefs = getattr(st.session_state, "meat_prefs", {}) or {}
+        milk_prefs = getattr(st.session_state, "milk_prefs", {}) or {}
 
         item_results, total_price = _search_items_with_spinners(
-            items, nearby_ids, meat_prefs
+            items, nearby_ids, meat_prefs, milk_prefs
         )
 
         st.session_state.results = SearchResults(
@@ -143,13 +166,24 @@ def handle_results() -> None:
 def _next_phase_after_clarify() -> str:
     """Decide whether we need a meat-clarification step or can go to search."""
     meat_items = [i for i in st.session_state.clear_items if is_meat_item(i)]
-    return "meat_clarify" if meat_items else "search"
+    if meat_items:
+        return "meat_clarify"
+    return _next_phase_after_meat()
+
+
+def _next_phase_after_meat() -> str:
+    """Decide whether we need a milk-clarification step or can go to search."""
+    milk_items = [i for i in st.session_state.clear_items if is_milk_item(i)]
+    if milk_items:
+        return "milk_clarify"
+    return "search"
 
 
 def _search_items_with_spinners(
     items: list[str],
     nearby_ids: set[str],
     meat_prefs: dict[str, bool],
+    milk_prefs: dict[str, str],
 ) -> tuple[list[ItemResult], float]:
     """Search offers per item with Streamlit spinners for UX feedback."""
     from datetime import datetime, timezone
@@ -167,6 +201,11 @@ def _search_items_with_spinners(
         if is_meat_item(item):
             allow = meat_prefs.get(item, True)
             relevant = filter_processed_products(relevant, allow)
+
+        # Apply milk type filter (falls back to all milk if preferred type has no deals)
+        if is_milk_item(item):
+            preferred = milk_prefs.get(item)
+            relevant = filter_milk_offers(relevant, preferred)
 
         current, future = separate_current_and_future_offers(relevant, now)
 
