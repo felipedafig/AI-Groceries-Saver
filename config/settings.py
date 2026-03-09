@@ -13,6 +13,12 @@ load_dotenv()
 # ─── API Keys ───
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 TJEK_API_KEY: str = os.getenv("TJEK_API_KEY", "")
+SALLING_API_KEY: str = os.getenv("SALLING_API_KEY", "SG_APIM_S4K1H4NJ9YY6FSXM366FT29GTWZA0R5R12DKYS30HVX5TTFMFV7G")
+
+# ─── Salling Group Food Waste Config ───
+SALLING_BASE_URL: str = "https://api.sallinggroup.com/v1"
+NETTO_STORE_ID: str = "07631afc-e5b9-4561-a21f-1b72174aff50"  # Netto at Levysgade 2, Horsens
+BILKA_STORE_ID: str = "a53014d5-cd36-471c-a192-69aa1d4c8c89"  # Bilka at Høegh Guldbergsgade 10, Horsens
 
 # ─── Gemini AI Configuration ───
 genai.configure(api_key=GEMINI_API_KEY)

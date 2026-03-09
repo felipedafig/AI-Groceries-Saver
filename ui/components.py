@@ -135,14 +135,22 @@ def _render_single_deal(result: ItemResult) -> None:
     best = result.best_current
 
     if best:
-        st.image(best["images"]["thumb"], width=60)
+        # Support for both Tjek thumb and Salling Group image
+        image_url = best.get("images", {}).get("thumb") if best.get("images") else best.get("image")
+        if image_url:
+            st.image(image_url, width=60)
+        
         up = calc_unit_price(best)
         price_str = f"{best['pricing']['price']} kr"
         if up:
             price_str += f"  ·  {up[0]} {up[1]}"
+            
+        # Food Waste Labeling
+        fw_label = " ♻️ **Food Waste Deal**" if best.get("is_food_waste") else ""
+        
         st.write(
             f"**{item.title()}**: {price_str} "
-            f"@ {best['branding']['name']}"
+            f"@ {best['branding']['name']}{fw_label}"
         )
         st.caption(f"_{best['heading']}_")
     else:

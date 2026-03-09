@@ -12,6 +12,9 @@ def calc_unit_price(offer: dict) -> Optional[tuple[float, str]]:
         A tuple of (unit_price, label) e.g. ``(50.0, 'kr/kg')``,
         or ``None`` if the required quantity data is missing.
     """
+    if offer.get("is_food_waste"):
+        return None  # Food waste deals often lack standardized quantity data in the API
+
     try:
         q = offer["quantity"]
         si_symbol = q["unit"]["si"]["symbol"]   # 'kg', 'l', or 'pcs'
