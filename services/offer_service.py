@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import requests
+import streamlit as st
 
 from config.settings import (
     TJEK_API_KEY,
@@ -27,6 +28,23 @@ from utils.time_utils import parse_time
 
 _tjek_session = requests.Session()
 _tjek_session.headers["X-Api-Key"] = TJEK_API_KEY
+
+
+@st.cache_data(ttl=300)  # Cache Tjek search results for 5 minutes
+def _cached_tjek_search(query: str) -> list[dict]:
+    """Fetch offers from the Tjek API with a short cache.
+
+    Offers rotate slowly (weekly), so a 5-minute cache avoids redundant
+    network round-trips when the user re-searches or searches overlapping
+    items, without serving stale data.
+    """
+    url = (
+        f"{TJEK_BASE_URL}/offers/search"
+        f"?query={query}&r_lat={USER_LAT}&r_lng={USER_LNG}"
+        f"&r_radius={RADIUS_M}&limit=30"
+    )
+    resp = _tjek_session.get(url, timeout=10).json()
+    return resp if isinstance(resp, list) else []
 
 # ─── Meat / processed-food constants ─────────────────────────────────
 
@@ -103,14 +121,8 @@ def search_offers(query: str, dealer_ids: set[str], *, api_source: list[str] | N
     tjek_offers: list[dict] = []
 
     if "Tjek" in api_source:
-        url = (
-            f"{TJEK_BASE_URL}/offers/search"
-            f"?query={query}&r_lat={USER_LAT}&r_lng={USER_LNG}"
-            f"&r_radius={RADIUS_M}&limit=30"
-        )
-        resp = _tjek_session.get(url).json()
-        if isinstance(resp, list):
-            tjek_offers = [o for o in resp if o.get("dealer_id") in dealer_ids]
+        all_offers = _cached_tjek_search(query)
+        tjek_offers = [o for o in all_offers if o.get("dealer_id") in dealer_ids]
 
     # ─── Integrated Salling Group Food Waste deals ───
     if _prefetched_food_waste is not None:

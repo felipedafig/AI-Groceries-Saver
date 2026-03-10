@@ -7,14 +7,17 @@ import streamlit as st
 from typing import List, Dict, Optional
 from config.settings import SALLING_API_KEY, SALLING_BASE_URL
 
+# ─── Reusable HTTP session for Salling API (connection pooling) ──────
+_salling_session = requests.Session()
+_salling_session.headers["Authorization"] = f"Bearer {SALLING_API_KEY}"
+
 @st.cache_data(ttl=600)  # Cache for 10 minutes
 def fetch_food_waste_deals(store_id: str) -> List[Dict]:
     """Fetch food waste deals from Salling Group API for a specific store."""
     url = f"{SALLING_BASE_URL}/food-waste/{store_id}"
-    headers = {"Authorization": f"Bearer {SALLING_API_KEY}"}
     
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = _salling_session.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
         

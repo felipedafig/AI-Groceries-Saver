@@ -3,11 +3,13 @@ Store service — retrieves and filters nearby stores from the Tjek API.
 """
 
 import requests
+import streamlit as st
 
 from config.settings import TJEK_API_KEY, TJEK_BASE_URL, USER_LAT, USER_LNG, RADIUS_M
 from utils.geo import haversine_km
 
 
+@st.cache_data(ttl=1800)  # Cache for 30 minutes — stores rarely change
 def get_nearby_stores(dealer_ids: list[str]) -> dict[str, dict]:
     """Fetch stores from the API and return those within the configured radius.
 
@@ -23,7 +25,7 @@ def get_nearby_stores(dealer_ids: list[str]) -> dict[str, dict]:
         f"?r_lat={USER_LAT}&r_lng={USER_LNG}&r_radius={RADIUS_M}"
         f"&dealer_ids={','.join(dealer_ids)}&limit=50"
     )
-    resp = requests.get(url, headers={"X-Api-Key": TJEK_API_KEY}).json()
+    resp = requests.get(url, headers={"X-Api-Key": TJEK_API_KEY}, timeout=10).json()
 
     nearby: dict[str, dict] = {}
     radius_km = RADIUS_M / 1000
