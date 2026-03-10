@@ -40,12 +40,19 @@ def handle_extract(user_list: str, selected_dealers: list[str]) -> None:
 
     with st.spinner("🤖 Reading your list..."):
         try:
+            import google.generativeai as genai
+            from config.settings import GEMINI_API_KEY
+            if not GEMINI_API_KEY:
+                st.error("MISSING API KEY: Please set GEMINI_API_KEY in your Streamlit secrets.")
+                st.stop()
             parsed = extract_grocery_items(user_list)
         except RateLimitExceeded as e:
-            st.error(f"⚠️ {e}")
+            st.warning(f"⚠️ {e}")
             st.stop()
         except Exception as e:
-            st.error(f"AI call failed: {e}")
+            import logging
+            logging.exception("AI Extraction failed")
+            st.error(f"AI call failed: {e}. If this is a deployed version, check your API keys.")
             st.stop()
 
     st.session_state.clear_items = parsed["items"]

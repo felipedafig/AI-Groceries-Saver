@@ -31,8 +31,14 @@ def _cached_tjek_search(query: str) -> list[dict]:
         f"?query={query}&r_lat={USER_LAT}&r_lng={USER_LNG}"
         f"&r_radius={RADIUS_M}&limit=30"
     )
-    resp = _tjek_session.get(url, timeout=10).json()
-    return resp if isinstance(resp, list) else []
+    try:
+        resp = _tjek_session.get(url, timeout=5)
+        if resp.status_code == 401:
+            return []
+        data = resp.json()
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
 
 
 MEAT_TERMS: set[str] = {

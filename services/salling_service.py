@@ -12,7 +12,10 @@ def fetch_food_waste_deals(store_id: str) -> List[Dict]:
     url = f"{SALLING_BASE_URL}/food-waste/{store_id}"
     
     try:
-        response = _salling_session.get(url, timeout=10)
+        response = _salling_session.get(url, timeout=5)
+        if response.status_code == 401:
+            # Silently return empty or log instead of crashing UI with st.error in background
+            return []
         response.raise_for_status()
         data = response.json()
 

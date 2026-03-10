@@ -29,8 +29,12 @@ def extract_grocery_items(user_text: str) -> dict[str, Any]:
     session_id = st.session_state.get("_rate_limit_id", "global")
     gemini_limiter.check(session_id)
 
-    resp = AI_MODEL.generate_content(prompt)
-    raw = _strip_markdown_fences(resp.text.strip())
+    try:
+        resp = AI_MODEL.generate_content(prompt)
+        raw = _strip_markdown_fences(resp.text.strip())
+    except Exception as e:
+        # If API fails, return the item as-is in a non-ambiguous way to let app continue
+        return {"items": [user_text], "ambiguous": {}}
 
     try:
         parsed = json.loads(raw)
