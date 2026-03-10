@@ -6,7 +6,10 @@ import json
 import re
 from typing import Any
 
+import streamlit as st
+
 from config.settings import AI_MODEL
+from utils.rate_limiter import gemini_limiter, RateLimitExceeded
 
 
 def extract_grocery_items(user_text: str) -> dict[str, Any]:
@@ -30,6 +33,10 @@ def extract_grocery_items(user_text: str) -> dict[str, Any]:
         '{{"items": ["mælk", "æbler"], "ambiguous": {{}}}}\n\n'
         "Return ONLY valid JSON, no markdown fences."
     )
+
+    # ── Rate-limit check ──
+    session_id = st.session_state.get("_rate_limit_id", "global")
+    gemini_limiter.check(session_id)  # raises RateLimitExceeded
 
     resp = AI_MODEL.generate_content(prompt)
     raw = _strip_markdown_fences(resp.text.strip())
@@ -76,12 +83,18 @@ def filter_offers_by_ai(query: str, headings: list[str]) -> list[str]:
         "If none match, return [].  No explanation."
     )
     try:
+        # ── Rate-limit check ──
+        session_id = st.session_state.get("_rate_limit_id", "global")
+        gemini_limiter.check(session_id)  # raises RateLimitExceeded
+
         resp = AI_MODEL.generate_content(prompt)
         raw = _strip_markdown_fences(resp.text.strip())
         result = json.loads(raw)
         # Ensure we only return headings that were actually in the input
         valid = set(headings)
         return [h for h in result if h in valid]
+    except RateLimitExceeded:
+        raise  # propagate rate-limit errors to the UI
     except Exception:
         return headings  # fail-open: return all if AI is unavailable
 

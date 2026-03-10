@@ -23,6 +23,11 @@ from ui.pages import (
 st.set_page_config(page_title="Horsens Grocery Saver", layout="centered")
 st.title("🛒 Horsens Grocery Saver")
 
+# ─── Assign a unique rate-limit ID per browser session ───
+import uuid
+if "_rate_limit_id" not in st.session_state:
+    st.session_state["_rate_limit_id"] = uuid.uuid4().hex
+
 # ─── Store filters ───
 selected_dealers = render_store_filters()
 

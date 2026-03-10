@@ -6,6 +6,7 @@ import streamlit as st
 
 from models.schemas import ItemResult, SearchResults
 from services.ai_service import extract_grocery_items
+from utils.rate_limiter import RateLimitExceeded
 from services.offer_service import (
     find_best_offers,
     is_bread_item,
@@ -44,6 +45,9 @@ def handle_extract(user_list: str, selected_dealers: list[str]) -> None:
     with st.spinner("🤖 Reading your list..."):
         try:
             parsed = extract_grocery_items(user_list)
+        except RateLimitExceeded as e:
+            st.error(f"⚠️ {e}")
+            st.stop()
         except Exception as e:
             st.error(f"AI call failed: {e}")
             st.stop()
