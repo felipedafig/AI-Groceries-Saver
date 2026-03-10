@@ -33,8 +33,9 @@ def extract_grocery_items(user_text: str) -> dict[str, Any]:
         resp = AI_MODEL.generate_content(prompt)
         raw = _strip_markdown_fences(resp.text.strip())
     except Exception as e:
-        # If API fails, return the item as-is in a non-ambiguous way to let app continue
-        return {"items": [user_text], "ambiguous": {}}
+        # If API fails, attempt to split by comma as a basic fallback
+        items = [i.strip() for i in user_text.split(",") if i.strip()]
+        return {"items": items, "ambiguous": {}}
 
     try:
         parsed = json.loads(raw)

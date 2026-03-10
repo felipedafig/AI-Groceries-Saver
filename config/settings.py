@@ -14,7 +14,7 @@ NETTO_STORE_ID: str = "07631afc-e5b9-4561-a21f-1b72174aff50"
 BILKA_STORE_ID: str = "a53014d5-cd36-471c-a192-69aa1d4c8c89"
 
 genai.configure(api_key=GEMINI_API_KEY)
-AI_MODEL = genai.GenerativeModel("gemini-2.5-flash")
+AI_MODEL = genai.GenerativeModel("gemini-1.5-flash")
 
 USER_LAT: float = 55.8607
 USER_LNG: float = 9.8503
