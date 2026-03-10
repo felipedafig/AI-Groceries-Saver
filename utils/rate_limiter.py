@@ -74,4 +74,7 @@ class RateLimiter:
 
 
 # ─── Singleton instance for Gemini API calls ───
-gemini_limiter = RateLimiter(max_calls=10, window_seconds=60.0)
+# With batched AI filtering a full search uses only 2 Gemini calls,
+# so 25 per minute comfortably allows ~12 searches while still
+# preventing abuse.
+gemini_limiter = RateLimiter(max_calls=25, window_seconds=60.0)

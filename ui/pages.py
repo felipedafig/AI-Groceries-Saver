@@ -16,6 +16,7 @@ from services.offer_service import (
     prefetch_food_waste,
     search_offers,
     filter_relevant,
+    batch_filter_relevant,
     filter_processed_products,
     separate_current_and_future_offers,
     find_best_current_offer,
@@ -220,7 +221,9 @@ def _search_items_with_spinners(
 ) -> tuple[list[ItemResult], float]:
     """Search offers per item with Streamlit spinners for UX feedback.
 
-    All items are searched in parallel using a thread pool for faster results.
+    Fetches raw offers for all items in parallel, then batch-filters them
+    through a single Gemini AI call (instead of one per item), and finally
+    applies category-specific filters locally.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from datetime import datetime, timezone
@@ -230,11 +233,34 @@ def _search_items_with_spinners(
     # Pre-fetch food waste deals once (avoids redundant lookups per item)
     food_waste = prefetch_food_waste(nearby_ids, api_source)
 
-    def _process(item: str) -> ItemResult:
-        offers = search_offers(
+    # ── Step 1: Fetch raw offers for ALL items in parallel (no AI) ──
+    def _fetch(item: str) -> tuple[str, list[dict]]:
+        return item, search_offers(
             item, nearby_ids, api_source=api_source, _prefetched_food_waste=food_waste
         )
-        relevant = filter_relevant(item, offers)
+
+    with st.spinner("🔍 Searching deals for all items..."):
+        with ThreadPoolExecutor(max_workers=min(len(items), 8)) as executor:
+            future_map = {executor.submit(_fetch, item): item for item in items}
+            raw_map: dict[str, list[dict]] = {}
+            for future in as_completed(future_map):
+                item_name, offers = future.result()
+                raw_map[item_name] = offers
+
+    # ── Step 2: Batch-filter ALL items in ONE Gemini call ──
+    with st.spinner("🤖 Verifying deal relevance..."):
+        try:
+            filtered_map = batch_filter_relevant(raw_map)
+        except RateLimitExceeded:
+            raise  # propagate to UI
+        except Exception:
+            # fail-open: skip AI filtering
+            filtered_map = raw_map
+
+    # ── Step 3: Apply category-specific filters & pick best offers ──
+    item_results: list[ItemResult] = []
+    for item in items:
+        relevant = filtered_map.get(item, [])
 
         if is_meat_item(item):
             allow = meat_prefs.get(item, True)
@@ -254,24 +280,15 @@ def _search_items_with_spinners(
         best_current = find_best_current_offer(current)
         best_future = find_best_future_offer(future)
 
-        return ItemResult(
+        item_results.append(ItemResult(
             query=item,
             best_current=best_current,
             best_future=best_future,
             current_min_price=(
                 best_current["pricing"]["price"] if best_current else None
             ),
-        )
+        ))
 
-    with st.spinner("🔍 Searching & verifying deals for all items..."):
-        with ThreadPoolExecutor(max_workers=min(len(items), 8)) as executor:
-            future_map = {executor.submit(_process, item): item for item in items}
-            results_map: dict[str, ItemResult] = {}
-            for future in as_completed(future_map):
-                results_map[future_map[future]] = future.result()
-
-    # Maintain original item order
-    item_results = [results_map[item] for item in items]
     total_price = sum(
         r.current_min_price for r in item_results if r.current_min_price is not None
     )

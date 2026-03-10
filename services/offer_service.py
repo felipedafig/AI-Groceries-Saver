@@ -18,7 +18,7 @@ from config.settings import (
     BILKA_STORE_ID,
 )
 from models.schemas import ItemResult
-from services.ai_service import filter_offers_by_ai
+from services.ai_service import filter_offers_by_ai, batch_filter_offers_by_ai
 from services.salling_service import fetch_food_waste_deals
 from utils.pricing import offer_sort_key
 from utils.time_utils import parse_time
@@ -179,6 +179,70 @@ def filter_relevant(query: str, offers: list[dict]) -> list[dict]:
     validated = [o for o in candidates if o["heading"] in valid_names]
 
     return validated
+
+
+def batch_filter_relevant(
+    items_with_offers: dict[str, list[dict]],
+) -> dict[str, list[dict]]:
+    """Filter offers for multiple items using a single AI call.
+
+    Performs the same keyword pre-filter as ``filter_relevant`` for each
+    item, then sends all candidate headings to the AI in one batch
+    request instead of N separate calls.
+
+    Args:
+        items_with_offers: mapping of search term → list of raw offer dicts.
+
+    Returns:
+        mapping of search term → list of relevant offer dicts.
+    """
+    if not items_with_offers:
+        return {}
+
+    # Step 1 — cheap keyword pre-filter per item (no AI)
+    candidates_map: dict[str, list[dict]] = {}
+    for query, offers in items_with_offers.items():
+        if not offers:
+            candidates_map[query] = []
+            continue
+
+        q = query.lower().strip()
+        q_words = [w for w in q.split() if len(w) > 2]
+
+        candidates = [
+            o for o in offers
+            if q in o["heading"].lower()
+            or any(w in o["heading"].lower() for w in q_words)
+        ]
+        if not candidates:
+            candidates = offers
+
+        candidates_map[query] = candidates[:25]
+
+    # Step 2 — batch AI validation (single Gemini call for all items)
+    items_with_headings: dict[str, list[str]] = {
+        query: [o["heading"] for o in cands]
+        for query, cands in candidates_map.items()
+        if cands
+    }
+
+    if items_with_headings:
+        valid_map = batch_filter_offers_by_ai(items_with_headings)
+    else:
+        valid_map = {}
+
+    # Step 3 — map AI-approved headings back to offer dicts
+    result: dict[str, list[dict]] = {}
+    for query, cands in candidates_map.items():
+        valid_names = set(valid_map.get(query, []))
+        if valid_names:
+            result[query] = [o for o in cands if o["heading"] in valid_names]
+        else:
+            # If AI returned nothing (or item had no candidates), keep
+            # whatever the keyword filter found so we don't lose results.
+            result[query] = cands
+
+    return result
 
 
 def is_meat_item(query: str) -> bool:
