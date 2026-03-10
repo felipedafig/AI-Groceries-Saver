@@ -2,6 +2,7 @@
 Offer service — searches, filters, and selects the best grocery offers.
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -21,6 +22,11 @@ from services.ai_service import filter_offers_by_ai
 from services.salling_service import fetch_food_waste_deals
 from utils.pricing import offer_sort_key
 from utils.time_utils import parse_time
+
+# ─── Reusable HTTP session for Tjek API (connection pooling) ─────────
+
+_tjek_session = requests.Session()
+_tjek_session.headers["X-Api-Key"] = TJEK_API_KEY
 
 # ─── Meat / processed-food constants ─────────────────────────────────
 
@@ -58,7 +64,26 @@ PROCESSED_KEYWORDS: list[str] = [
 ]
 
 
-def search_offers(query: str, dealer_ids: set[str], *, api_source: list[str] | None = None) -> list[dict]:
+def prefetch_food_waste(
+    dealer_ids: set[str], api_source: list[str] | None = None
+) -> list[dict]:
+    """Pre-fetch all food waste deals for the selected stores.
+
+    Call once before parallel item processing to avoid redundant lookups.
+    """
+    if api_source is None:
+        api_source = ["Tjek", "Salling"]
+    if "Salling" not in api_source:
+        return []
+    food_waste: list[dict] = []
+    if "9ba51" in dealer_ids:
+        food_waste.extend(fetch_food_waste_deals(NETTO_STORE_ID))
+    if "93f13" in dealer_ids:
+        food_waste.extend(fetch_food_waste_deals(BILKA_STORE_ID))
+    return food_waste
+
+
+def search_offers(query: str, dealer_ids: set[str], *, api_source: list[str] | None = None, _prefetched_food_waste: list[dict] | None = None) -> list[dict]:
     """Search for offers matching *query* near the user.
 
     *api_source* is a list of enabled sources (``"Tjek"``, ``"Salling"``).
@@ -77,21 +102,20 @@ def search_offers(query: str, dealer_ids: set[str], *, api_source: list[str] | N
             f"?query={query}&r_lat={USER_LAT}&r_lng={USER_LNG}"
             f"&r_radius={RADIUS_M}&limit=30"
         )
-        resp = requests.get(url, headers={"X-Api-Key": TJEK_API_KEY}).json()
+        resp = _tjek_session.get(url).json()
         if isinstance(resp, list):
             tjek_offers = [o for o in resp if o.get("dealer_id") in dealer_ids]
 
     # ─── Integrated Salling Group Food Waste deals ───
-    food_waste_offers = []
-
-    if "Salling" in api_source:
-        # Only fetch food waste if Netto or Bilka are in the filter
-        # Netto dealer ID in Tjek: 9ba51
-        # Bilka dealer ID in Tjek: 93f13
-        if "9ba51" in dealer_ids:
-            food_waste_offers.extend(fetch_food_waste_deals(NETTO_STORE_ID))
-        if "93f13" in dealer_ids:
-            food_waste_offers.extend(fetch_food_waste_deals(BILKA_STORE_ID))
+    if _prefetched_food_waste is not None:
+        food_waste_offers = _prefetched_food_waste
+    else:
+        food_waste_offers = []
+        if "Salling" in api_source:
+            if "9ba51" in dealer_ids:
+                food_waste_offers.extend(fetch_food_waste_deals(NETTO_STORE_ID))
+            if "93f13" in dealer_ids:
+                food_waste_offers.extend(fetch_food_waste_deals(BILKA_STORE_ID))
 
     # Convert food waste deals to Tjek-like structure for the filtering pipeline
     converted_food_waste = []
@@ -240,40 +264,42 @@ def find_best_offers(
         milk_prefs = {}
 
     now = datetime.now(timezone.utc)
-    total_price = 0.0
-    item_results: list[ItemResult] = []
+    food_waste = prefetch_food_waste(nearby_ids)
 
-    for item in items:
-        offers = search_offers(item, nearby_ids)
+    def _process(item: str) -> ItemResult:
+        offers = search_offers(item, nearby_ids, _prefetched_food_waste=food_waste)
         relevant = filter_relevant(item, offers)
 
-        # Apply processed-food filter for meat items
         if is_meat_item(item):
             allow = meat_prefs.get(item, True)
             relevant = filter_processed_products(relevant, allow)
 
-        # Apply milk type filter
         if is_milk_item(item):
             preferred = milk_prefs.get(item)
             relevant = filter_milk_offers(relevant, preferred)
 
         current, future = separate_current_and_future_offers(relevant, now)
-
         best_current = find_best_current_offer(current)
         best_future = find_best_future_offer(future)
 
-        if best_current:
-            total_price += best_current["pricing"]["price"]
-
-        item_results.append(
-            ItemResult(
-                query=item,
-                best_current=best_current,
-                best_future=best_future,
-                current_min_price=(
-                    best_current["pricing"]["price"] if best_current else None
-                ),
-            )
+        return ItemResult(
+            query=item,
+            best_current=best_current,
+            best_future=best_future,
+            current_min_price=(
+                best_current["pricing"]["price"] if best_current else None
+            ),
         )
+
+    with ThreadPoolExecutor(max_workers=min(len(items), 8)) as executor:
+        future_map = {executor.submit(_process, item): item for item in items}
+        results_map: dict[str, ItemResult] = {}
+        for future in as_completed(future_map):
+            results_map[future_map[future]] = future.result()
+
+    item_results = [results_map[item] for item in items]
+    total_price = sum(
+        r.current_min_price for r in item_results if r.current_min_price is not None
+    )
 
     return item_results, total_price

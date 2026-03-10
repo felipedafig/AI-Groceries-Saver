@@ -11,6 +11,7 @@ from services.offer_service import (
     is_meat_item,
     is_milk_item,
     filter_milk_offers,
+    prefetch_food_waste,
     search_offers,
     filter_relevant,
     filter_processed_products,
@@ -184,45 +185,56 @@ def _search_items_with_spinners(
     milk_prefs: dict[str, str],
     api_source: list[str] | None = None,
 ) -> tuple[list[ItemResult], float]:
-    """Search offers per item with Streamlit spinners for UX feedback."""
+    """Search offers per item with Streamlit spinners for UX feedback.
+
+    All items are searched in parallel using a thread pool for faster results.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc)
-    total_price = 0.0
-    item_results: list[ItemResult] = []
 
-    for item in items:
-        with st.spinner(f"🔍 Searching & verifying deals for {item}..."):
-            offers = search_offers(item, nearby_ids, api_source=api_source)
-            relevant = filter_relevant(item, offers)
+    # Pre-fetch food waste deals once (avoids redundant lookups per item)
+    food_waste = prefetch_food_waste(nearby_ids, api_source)
 
-        # Apply processed-food filter for meat items
+    def _process(item: str) -> ItemResult:
+        offers = search_offers(
+            item, nearby_ids, api_source=api_source, _prefetched_food_waste=food_waste
+        )
+        relevant = filter_relevant(item, offers)
+
         if is_meat_item(item):
             allow = meat_prefs.get(item, True)
             relevant = filter_processed_products(relevant, allow)
 
-        # Apply milk type filter (falls back to all milk if preferred type has no deals)
         if is_milk_item(item):
             preferred = milk_prefs.get(item)
             relevant = filter_milk_offers(relevant, preferred)
 
         current, future = separate_current_and_future_offers(relevant, now)
-
         best_current = find_best_current_offer(current)
         best_future = find_best_future_offer(future)
 
-        if best_current:
-            total_price += best_current["pricing"]["price"]
-
-        item_results.append(
-            ItemResult(
-                query=item,
-                best_current=best_current,
-                best_future=best_future,
-                current_min_price=(
-                    best_current["pricing"]["price"] if best_current else None
-                ),
-            )
+        return ItemResult(
+            query=item,
+            best_current=best_current,
+            best_future=best_future,
+            current_min_price=(
+                best_current["pricing"]["price"] if best_current else None
+            ),
         )
+
+    with st.spinner("🔍 Searching & verifying deals for all items..."):
+        with ThreadPoolExecutor(max_workers=min(len(items), 8)) as executor:
+            future_map = {executor.submit(_process, item): item for item in items}
+            results_map: dict[str, ItemResult] = {}
+            for future in as_completed(future_map):
+                results_map[future_map[future]] = future.result()
+
+    # Maintain original item order
+    item_results = [results_map[item] for item in items]
+    total_price = sum(
+        r.current_min_price for r in item_results if r.current_min_price is not None
+    )
 
     return item_results, total_price
