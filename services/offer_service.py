@@ -79,6 +79,35 @@ NON_BREAD_KEYWORDS: list[str] = [
     "gær", "yeast",
 ]
 
+# Items that are NEVER groceries - exclude from all searches
+NON_GROCERY_KEYWORDS: list[str] = [
+    # Electronics & Tech
+    "macbook", "iphone", "ipad", "apple watch", "samsung", "laptop", "computer",
+    "tablet", "telefon", "mobil", "headset", "høretelefon", "airpods",
+    # Candy & Snacks (when searching for base ingredients)
+    "marabou", "chokolade", "slik", "candy", "cookie", "kiks", "wafer", "waffers",
+    "brownie", "muffin", "kage", "cake", "snack", "chips", "twist", "oreo",
+    "bastogne", "digestive", "petit", "granola", "müsli",
+    # Ready meals & Sauces
+    "sauce", "dolmio", "ben's original", "dressing", "marinade",
+    "nudler", "noodle", "pasta ret", "wok", "færdigret",
+    # Non-food
+    "shampoo", "sæbe", "vaskemiddel", "toiletpapir", "bleer",
+]
+
+# Synonyms to expand search - key is the search term, values are also searched
+SEARCH_SYNONYMS: dict[str, list[str]] = {
+    "fløde": ["piskefløde", "cremefraiche", "madlavningsfløde"],
+    "mælk": ["letmælk", "sødmælk", "minimælk", "skummetmælk"],
+    "ost": ["skiveost", "revet ost", "flødeost", "hytteost"],
+    "kylling": ["kyllingebryst", "kyllingelår", "kyllingefilet"],
+    "oksekød": ["hakket oksekød", "oksekødsfars", "bøf"],
+    "svinekød": ["hakket svinekød", "nakkefilet", "mørbrad"],
+    "brød": ["franskbrød", "rugbrød", "boller", "flutes"],
+    "æg": ["fritgående æg", "økologiske æg", "buræg"],
+    "smør": ["smørbar", "lurpak", "kærgården"],
+}
+
 
 def prefetch_food_waste(
     dealer_ids: set[str], api_source: list[str] | None = None
@@ -97,15 +126,29 @@ def prefetch_food_waste(
 
 
 def search_offers(query: str, dealer_ids: set[str], *, api_source: list[str] | None = None, _prefetched_food_waste: list[dict] | None = None) -> list[dict]:
-    """Search for offers matching query near the user."""
+    """Search for offers matching query near the user, including synonyms."""
     if api_source is None:
         api_source = ["Tjek", "Salling"]
 
     tjek_offers: list[dict] = []
 
     if "Tjek" in api_source:
-        all_offers = _cached_tjek_search(query)
-        tjek_offers = [o for o in all_offers if o.get("dealer_id") in dealer_ids]
+        # Build list of search terms: main query + synonyms
+        q_lower = query.lower().strip()
+        search_terms = [query]
+        
+        # Add synonyms if available
+        if q_lower in SEARCH_SYNONYMS:
+            search_terms.extend(SEARCH_SYNONYMS[q_lower])
+        
+        # Search for each term and merge results (avoid duplicates by ID)
+        seen_ids: set[str] = set()
+        for term in search_terms:
+            results = _cached_tjek_search(term)
+            for o in results:
+                if o.get("dealer_id") in dealer_ids and o.get("id") not in seen_ids:
+                    tjek_offers.append(o)
+                    seen_ids.add(o.get("id"))
 
     if _prefetched_food_waste is not None:
         food_waste_offers = _prefetched_food_waste
@@ -165,6 +208,39 @@ def filter_relevant(query: str, offers: list[dict]) -> list[dict]:
     return validated
 
 
+def _is_non_grocery(heading: str, query: str) -> bool:
+    """Check if a heading is obviously not a grocery item for the query."""
+    h = heading.lower()
+    q = query.lower()
+    
+    # Always exclude tech products
+    tech_words = ["macbook", "iphone", "ipad", "apple watch", "samsung", "laptop", "computer", "tablet", "128gb", "256gb", "512gb"]
+    if any(t in h for t in tech_words):
+        return True
+    
+    # Exclude vague/non-product headings
+    vague_words = ["begrænset antal", "limited", "tilbud gælder", "spar "]
+    if any(v in h for v in vague_words) and len(h) < 30:
+        return True
+    
+    # If searching for a base ingredient, exclude snacks/candy/sauces/alcohol
+    base_ingredients = ["mælk", "milk", "ost", "cheese", "æg", "egg", "kylling", "chicken", 
+                        "æble", "apple", "kartoffel", "potato", "tomat", "tomato", "løg", "onion",
+                        "gulerod", "carrot", "brød", "bread", "smør", "butter", "ris", "rice"]
+    
+    if any(b in q for b in base_ingredients):
+        # Exclude candy, snacks, ready meals, alcohol
+        bad_words = ["marabou", "chokolade", "slik", "cookie", "kiks", "wafer", "brownie", 
+                     "muffin", "kage", "snack", "chips", "twist", "oreo", "granola",
+                     "sauce", "dolmio", "dressing", "nudler", "noodle", "wok", "færdigret",
+                     "baileys", "captain morgan", "whisky", "vodka", "gin", "rum", "shots",
+                     "soda", "iced tea", "arizona", "sodavand"]
+        if any(b in h for b in bad_words) and q not in h:
+            return True
+    
+    return False
+
+
 def batch_filter_relevant(
     items_with_offers: dict[str, list[dict]],
 ) -> dict[str, list[dict]]:
@@ -181,13 +257,17 @@ def batch_filter_relevant(
         q = query.lower().strip()
         q_words = [w for w in q.split() if len(w) > 2]
 
+        # First: exclude obvious non-grocery items
+        pre_filtered = [o for o in offers if not _is_non_grocery(o["heading"], query)]
+        
+        # Then: keyword match
         candidates = [
-            o for o in offers
+            o for o in pre_filtered
             if q in o["heading"].lower()
             or any(w in o["heading"].lower() for w in q_words)
         ]
         if not candidates:
-            candidates = offers
+            candidates = pre_filtered[:15]  # Limit fallback to prevent garbage
 
         candidates_map[query] = candidates[:25]
 
@@ -208,9 +288,16 @@ def batch_filter_relevant(
         if valid_names:
             result[query] = [o for o in cands if o["heading"] in valid_names]
         else:
-            # If AI returned nothing (or item had no candidates), keep
-            # whatever the keyword filter found so we don't lose results.
-            result[query] = cands
+            # AI returned nothing - apply strict fallback filter
+            # Only keep items where the query word appears at the START of the heading
+            q = query.lower().strip()
+            strict_matches = [
+                o for o in cands 
+                if o["heading"].lower().startswith(q)
+                or any(word.startswith(q) for word in o["heading"].lower().split()[:2])
+            ]
+            # If still no strict matches, return empty - better to show "no deals" than garbage
+            result[query] = strict_matches[:5]
 
     return result
 

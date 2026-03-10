@@ -8,21 +8,66 @@ from config.settings import AI_MODEL
 from utils.rate_limiter import gemini_limiter, RateLimitExceeded
 
 
+# Common English-to-Danish grocery translations for fallback
+GROCERY_TRANSLATIONS: dict[str, str] = {
+    # Dairy
+    "milk": "mælk", "cream": "fløde", "milkcream": "fløde", "whipping cream": "piskefløde",
+    "butter": "smør", "cheese": "ost", "yogurt": "yoghurt", "eggs": "æg", "egg": "æg",
+    # Meat
+    "chicken": "kylling", "beef": "oksekød", "pork": "svinekød", "meat": "kød",
+    "minced meat": "hakket kød", "bacon": "bacon", "ham": "skinke",
+    # Produce
+    "apple": "æbler", "apples": "æbler", "banana": "bananer", "potato": "kartofler",
+    "potatoes": "kartofler", "tomato": "tomater", "tomatoes": "tomater",
+    "onion": "løg", "onions": "løg", "carrot": "gulerødder", "carrots": "gulerødder",
+    # Bakery
+    "bread": "brød", "bun": "bolle", "buns": "boller", "cake": "kage",
+    # Pantry
+    "rice": "ris", "pasta": "pasta", "flour": "mel", "sugar": "sukker",
+    "oil": "olie", "salt": "salt", "coffee": "kaffe", "tea": "te",
+    # Drinks
+    "juice": "juice", "water": "vand", "soda": "sodavand",
+}
+
+
+def _translate_to_danish(items: list[str]) -> list[str]:
+    """Translate English grocery terms to Danish for better API matching."""
+    translated = []
+    for item in items:
+        lower = item.lower().strip()
+        if lower in GROCERY_TRANSLATIONS:
+            translated.append(GROCERY_TRANSLATIONS[lower])
+        else:
+            translated.append(item)
+    return translated
+
+
 def extract_grocery_items(user_text: str) -> dict[str, Any]:
-    """Use Gemini to extract grocery items from a Danish shopping list."""
+    """Use Gemini to extract grocery items from a shopping list (Danish or English)."""
     prompt = (
-        f"Extract grocery items from this Danish shopping list: '{user_text}'\n"
+        f"Extract grocery items from this shopping list: '{user_text}'\n"
+        "The user may write in English OR Danish. You MUST translate ALL items to Danish.\n\n"
         "Return a JSON object with exactly two keys:\n"
-        '- "items": list of clear, specific grocery item names in Danish\n'
+        '- "items": list of clear, specific grocery item names in DANISH\n'
         '- "ambiguous": dict where each key is an ambiguous term and value '
         "is a list of 2-3 possible specific meanings in Danish\n\n"
+        "Translation rules (ALWAYS apply these):\n"
+        "- milk → mælk\n"
+        "- cream, milkcream, whipping cream → fløde or piskefløde\n"
+        "- butter → smør\n"
+        "- cheese → ost\n"
+        "- chicken → kylling\n"
+        "- eggs → æg\n"
+        "- apples → æbler\n"
+        "- potatoes → kartofler\n"
+        "- bread → brød\n\n"
         "Special rules:\n"
         "- If the user asks for 'bread' or 'brød', ALWAYS treat it as ambiguous "
         "and offer these specific options: ['Brød (Frisk)', 'Brød (Frost)']\n\n"
-        'Example — if input is "æbler, mælk" and æbler is ambiguous:\n'
-        '{{"items": ["mælk"], "ambiguous": {{"æbler": ["æbler (frugt)", "æblejuice"]}}}}\n\n'
-        "If nothing is ambiguous:\n"
-        '{{"items": ["mælk", "æbler"], "ambiguous": {{}}}}\n\n'
+        'Example — if input is "apples, milk, cream":\n'
+        '{{"items": ["æbler", "mælk", "fløde"], "ambiguous": {{}}}}\n\n'
+        'Example — if input is "eggs, bread":\n'
+        '{{"items": ["æg"], "ambiguous": {{"bread": ["Brød (Frisk)", "Brød (Frost)"]}}}}\n\n'
         "Return ONLY valid JSON, no markdown fences."
     )
 
@@ -33,9 +78,10 @@ def extract_grocery_items(user_text: str) -> dict[str, Any]:
         resp = AI_MODEL.generate_content(prompt)
         raw = _strip_markdown_fences(resp.text.strip())
     except Exception as e:
-        # If API fails, attempt to split by comma as a basic fallback
+        # If API fails, attempt to split by comma and translate to Danish
         items = [i.strip() for i in user_text.split(",") if i.strip()]
-        return {"items": items, "ambiguous": {}}
+        translated = _translate_to_danish(items)
+        return {"items": translated, "ambiguous": {}}
 
     try:
         parsed = json.loads(raw)
@@ -57,11 +103,12 @@ def filter_offers_by_ai(query: str, headings: list[str]) -> list[str]:
         f"'{query}' on their list.\n\n"
         "Rules:\n"
         "- Match the BASE ingredient, not products that merely contain the word.\n"
-        "  Example: 'mælk' (milk) → accept 'ARLA LETMÆLK 1L', reject 'MÆLKESNACK MUNCHMALLOW'.\n"
-        "  Example: 'æg' (eggs) → accept 'FRITGÅENDE ÆG 10PK', reject 'ÆG & BACON SALAT'.\n"
-        "  Example: 'kylling' (chicken) → accept 'KYLLINGEBRYST 500G', reject 'KYLLING WOK GODT BEGYNDT'.\n"
-        "- Ready meals, snacks, candy, sauces, salads, and dressings that "
-        "  happen to contain the keyword are NOT matches.\n"
+        "  Example: 'mælk' (milk) → accept 'ARLA LETMÆLK 1L', reject 'MÆLKESNACK MUNCHMALLOW' or 'Muffins'.\n"
+        "  Example: 'ost' (cheese) → accept 'HAVARTI 400G', reject 'DOLMIO BOLOGNESE SAUCE'.\n"
+        "  Example: 'kylling' (chicken) → accept 'KYLLINGEBRYST 500G', reject 'NUDLER MED KYLLINGESMAG'.\n"
+        "  Example: 'æbler' (apples) → accept 'DANSKE ÆBLER 1KG', reject 'MacBook Air' or 'Apple Watch'.\n"
+        "  Example: 'kartofler' (potatoes) → accept 'NYE KARTOFLER 2KG', reject 'Engelsk snackbox'.\n"
+        "- Ready meals, snacks, candy, sauces, salads, cocktails, and technology/electronics are NOT matches.\n"
         "- The product should be the raw/plain form of the ingredient unless "
         "  the query specifically asks for something processed.\n"
         "- For 'bread' (brød), match actual bread/buns/rolls, NOT bread mixes, "
@@ -103,11 +150,12 @@ def batch_filter_offers_by_ai(
         "reasonably buy to fulfil that item on their list.\n\n"
         "Rules:\n"
         "- Match the BASE ingredient, not products that merely contain the word.\n"
-        "  Example: 'mælk' (milk) → accept 'ARLA LETMÆLK 1L', reject 'MÆLKESNACK MUNCHMALLOW'.\n"
-        "  Example: 'æg' (eggs) → accept 'FRITGÅENDE ÆG 10PK', reject 'ÆG & BACON SALAT'.\n"
-        "  Example: 'kylling' (chicken) → accept 'KYLLINGEBRYST 500G', reject 'KYLLING WOK GODT BEGYNDT'.\n"
-        "- Ready meals, snacks, candy, sauces, salads, and dressings that "
-        "  happen to contain the keyword are NOT matches.\n"
+        "  Example: 'mælk' (milk) → accept 'ARLA LETMÆLK 1L', reject 'MÆLKESNACK MUNCHMALLOW' or 'Muffins'.\n"
+        "  Example: 'ost' (cheese) → accept 'HAVARTI 400G', reject 'DOLMIO BOLOGNESE SAUCE'.\n"
+        "  Example: 'kylling' (chicken) → accept 'KYLLINGEBRYST 500G', reject 'NUDLER MED KYLLINGESMAG'.\n"
+        "  Example: 'æbler' (apples) → accept 'DANSKE ÆBLER 1KG', reject 'MacBook Air' or 'Apple Watch'.\n"
+        "  Example: 'kartofler' (potatoes) → accept 'NYE KARTOFLER 2KG', reject 'Engelsk snackbox'.\n"
+        "- Ready meals, snacks, candy, sauces, salads, cocktails, and technology/electronics are NOT matches.\n"
         "- The product should be the raw/plain form of the ingredient unless "
         "  the query specifically asks for something processed.\n"
         "- For 'bread' (brød), match actual bread/buns/rolls, NOT bread mixes, "
