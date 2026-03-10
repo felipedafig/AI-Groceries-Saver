@@ -131,12 +131,12 @@ def render_meat_clarification(meat_items: list[str]) -> None:
         "Some items on your list could match processed products "
         "(nuggets, burgers, ready meals). What do you prefer?"
     )
-    for item in meat_items:
+    for i, item in enumerate(meat_items):
         st.radio(
             f"For **{item}**, do you want to include processed products "
             f"like nuggets?",
             ["Fresh meat only", "Include processed products"],
-            key=f"meat_{item}",
+            key=f"meat_{item}_{i}",
         )
 
 
@@ -145,11 +145,11 @@ def render_bread_clarification(bread_items: list[str]) -> None:
     st.write(
         "Would you like to see normal (fresh) bread or frozen bread deals?"
     )
-    for item in bread_items:
+    for i, item in enumerate(bread_items):
         st.radio(
             f"For **{item}**, what do you prefer?",
             ["Normal (fresh) bread", "Frozen bread", "Both"],
-            key=f"bread_{item}",
+            key=f"bread_{item}_{i}",
         )
 
 
@@ -163,11 +163,11 @@ def render_milk_clarification(milk_items: list[str]) -> None:
     )
     options = ["Any"] + list(MILK_TYPES.keys())
 
-    for item in milk_items:
+    for i, item in enumerate(milk_items):
         st.radio(
             f"What type of **{item}** do you prefer?",
             options,
-            key=f"milk_{item}",
+            key=f"milk_{item}_{i}",
         )
 
 

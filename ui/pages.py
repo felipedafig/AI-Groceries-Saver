@@ -69,12 +69,12 @@ def handle_extract(user_list: str, selected_dealers: list[str]) -> None:
 def handle_clarify() -> None:
     st.subheader("🤔 Did you mean...")
 
-    for term, options in st.session_state.ambiguous.items():
-        st.radio(f"**{term}**:", options, key=f"clarify_{term}")
+    for i, (term, options) in enumerate(st.session_state.ambiguous.items()):
+        st.radio(f"**{term}**:", options, key=f"clarify_{term}_{i}")
 
     if st.button("✅ Confirm & Search"):
-        for term in st.session_state.ambiguous:
-            choice = st.session_state.get(f"clarify_{term}")
+        for i, term in enumerate(st.session_state.ambiguous):
+            choice = st.session_state.get(f"clarify_{term}_{i}")
             if choice:
                 st.session_state.clear_items.append(choice)
         st.session_state.ambiguous = {}
@@ -89,8 +89,8 @@ def handle_bread_clarify() -> None:
 
     if st.button("✅ Confirm Bread Preferences"):
         prefs: dict[str, str] = {}
-        for item in bread_items:
-            choice = st.session_state.get(f"bread_{item}", "Normal (fresh) bread")
+        for i, item in enumerate(bread_items):
+            choice = st.session_state.get(f"bread_{item}_{i}", "Normal (fresh) bread")
             prefs[item] = choice
         st.session_state.bread_prefs = prefs
         st.session_state.phase = _next_phase_after_bread()
@@ -104,8 +104,8 @@ def handle_meat_clarify() -> None:
 
     if st.button("✅ Confirm Meat Preferences"):
         prefs: dict[str, bool] = {}
-        for item in meat_items:
-            choice = st.session_state.get(f"meat_{item}", "Include processed products")
+        for i, item in enumerate(meat_items):
+            choice = st.session_state.get(f"meat_{item}_{i}", "Include processed products")
             prefs[item] = choice == "Include processed products"
         st.session_state.meat_prefs = prefs
         st.session_state.phase = _next_phase_after_meat()
@@ -119,8 +119,8 @@ def handle_milk_clarify() -> None:
 
     if st.button("✅ Confirm Milk Preferences"):
         prefs: dict[str, str] = {}
-        for item in milk_items:
-            choice = st.session_state.get(f"milk_{item}", "Any")
+        for i, item in enumerate(milk_items):
+            choice = st.session_state.get(f"milk_{item}_{i}", "Any")
             if choice != "Any":
                 prefs[item] = MILK_TYPES[choice]
         st.session_state.milk_prefs = prefs
