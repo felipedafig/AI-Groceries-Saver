@@ -8,6 +8,7 @@ from models.schemas import ItemResult, SearchResults
 from services.ai_service import extract_grocery_items
 from services.offer_service import (
     find_best_offers,
+    is_bread_item,
     is_meat_item,
     is_milk_item,
     filter_milk_offers,
@@ -23,6 +24,7 @@ from services.offer_service import (
 from services.store_service import get_nearby_stores
 from ui.components import (
     render_best_deals,
+    render_bread_clarification,
     render_meat_clarification,
     render_milk_clarification,
     render_nearby_stores,
@@ -51,6 +53,7 @@ def handle_extract(user_list: str, selected_dealers: list[str]) -> None:
     st.session_state.results = None
     st.session_state.meat_prefs = {}
     st.session_state.milk_prefs = {}
+    st.session_state.bread_prefs = {}
 
     st.session_state.phase = "clarify" if parsed["ambiguous"] else _next_phase_after_clarify()
     st.rerun()
@@ -70,6 +73,22 @@ def handle_clarify() -> None:
                 st.session_state.clear_items.append(choice)
         st.session_state.ambiguous = {}
         st.session_state.phase = _next_phase_after_clarify()
+        st.rerun()
+
+
+def handle_bread_clarify() -> None:
+    """Phase: ask whether the user wants frozen or normal bread."""
+    bread_items = [i for i in st.session_state.clear_items if is_bread_item(i)]
+
+    render_bread_clarification(bread_items)
+
+    if st.button("✅ Confirm Bread Preferences"):
+        prefs: dict[str, str] = {}
+        for item in bread_items:
+            choice = st.session_state.get(f"bread_{item}", "Normal (fresh) bread")
+            prefs[item] = choice
+        st.session_state.bread_prefs = prefs
+        st.session_state.phase = _next_phase_after_bread()
         st.rerun()
 
 
@@ -125,9 +144,10 @@ def handle_search(selected_dealers: list[str], api_source: list[str] | None = No
         nearby_ids = set(nearby.keys())
         meat_prefs = getattr(st.session_state, "meat_prefs", {}) or {}
         milk_prefs = getattr(st.session_state, "milk_prefs", {}) or {}
+        bread_prefs = getattr(st.session_state, "bread_prefs", {}) or {}
 
         item_results, total_price = _search_items_with_spinners(
-            items, nearby_ids, meat_prefs, milk_prefs, api_source
+            items, nearby_ids, meat_prefs, milk_prefs, bread_prefs, api_source
         )
 
         st.session_state.results = SearchResults(
@@ -163,7 +183,15 @@ def handle_results() -> None:
 
 
 def _next_phase_after_clarify() -> str:
-    """Decide whether we need a meat-clarification step or can go to search."""
+    """Decide whether we need a bread-clarification step or can go to meat."""
+    bread_items = [i for i in st.session_state.clear_items if is_bread_item(i)]
+    if bread_items:
+        return "bread_clarify"
+    return _next_phase_after_bread()
+
+
+def _next_phase_after_bread() -> str:
+    """Decide whether we need a meat-clarification step or can go to milk."""
     meat_items = [i for i in st.session_state.clear_items if is_meat_item(i)]
     if meat_items:
         return "meat_clarify"
@@ -183,6 +211,7 @@ def _search_items_with_spinners(
     nearby_ids: set[str],
     meat_prefs: dict[str, bool],
     milk_prefs: dict[str, str],
+    bread_prefs: dict[str, str],
     api_source: list[str] | None = None,
 ) -> tuple[list[ItemResult], float]:
     """Search offers per item with Streamlit spinners for UX feedback.
@@ -210,6 +239,12 @@ def _search_items_with_spinners(
         if is_milk_item(item):
             preferred = milk_prefs.get(item)
             relevant = filter_milk_offers(relevant, preferred)
+
+        if is_bread_item(item):
+            from services.offer_service import filter_bread_type, filter_non_bread
+            preferred = bread_prefs.get(item, "Both")
+            relevant = filter_non_bread(relevant)
+            relevant = filter_bread_type(relevant, preferred)
 
         current, future = separate_current_and_future_offers(relevant, now)
         best_current = find_best_current_offer(current)

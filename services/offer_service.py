@@ -63,6 +63,12 @@ PROCESSED_KEYWORDS: list[str] = [
     "toast",
 ]
 
+NON_BREAD_KEYWORDS: list[str] = [
+    "brødblanding", "bland selv",
+    "bageblanding", "bagemix",
+    "gær", "yeast",
+]
+
 
 def prefetch_food_waste(
     dealer_ids: set[str], api_source: list[str] | None = None
@@ -186,6 +192,12 @@ def is_milk_item(query: str) -> bool:
     return q in MILK_TERMS
 
 
+def is_bread_item(query: str) -> bool:
+    """Return True if *query* looks like a generic bread search term."""
+    q = query.lower().strip()
+    return q in {"bread", "brød"}
+
+
 def filter_milk_offers(
     offers: list[dict], preferred_type: str | None
 ) -> list[dict]:
@@ -213,6 +225,43 @@ def filter_processed_products(
         o for o in offers
         if not any(kw in o["heading"].lower() for kw in PROCESSED_KEYWORDS)
     ]
+
+
+def filter_non_bread(offers: list[dict]) -> list[dict]:
+    """Remove bread mixes and baking ingredients from bread searches."""
+    return [
+        o for o in offers
+        if not any(kw in o["heading"].lower() for kw in NON_BREAD_KEYWORDS)
+    ]
+
+
+def filter_bread_type(offers: list[dict], preferred_type: str) -> list[dict]:
+    """Filter bread offers by whether the user wants frozen or fresh.
+
+    *preferred_type* is one of "Normal (fresh) bread", "Frozen bread", "Both".
+    """
+    if preferred_type == "Both":
+        return offers
+
+    # Frozen bread keywords in Danish
+    frozen_keywords = ["frost", "frossen", "frosset", "bake-off", "bake off"]
+
+    if preferred_type == "Frozen bread":
+        filtered = [
+            o for o in offers
+            if any(kw in o["heading"].lower() for kw in frozen_keywords)
+        ]
+        return filtered if filtered else offers
+
+    if preferred_type == "Normal (fresh) bread":
+        # Keep items that DON'T contain frozen keywords
+        filtered = [
+            o for o in offers
+            if not any(kw in o["heading"].lower() for kw in frozen_keywords)
+        ]
+        return filtered if filtered else offers
+
+    return offers
 
 
 def separate_current_and_future_offers(
@@ -277,6 +326,9 @@ def find_best_offers(
         if is_milk_item(item):
             preferred = milk_prefs.get(item)
             relevant = filter_milk_offers(relevant, preferred)
+
+        if is_bread_item(item):
+            relevant = filter_non_bread(relevant)
 
         current, future = separate_current_and_future_offers(relevant, now)
         best_current = find_best_current_offer(current)

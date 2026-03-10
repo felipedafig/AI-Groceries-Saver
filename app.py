@@ -9,7 +9,15 @@ presents the cheapest deals to the user.
 import streamlit as st
 
 from ui.components import render_store_filters, render_api_source_filter
-from ui.pages import handle_clarify, handle_extract, handle_meat_clarify, handle_milk_clarify, handle_results, handle_search
+from ui.pages import (
+    handle_bread_clarify,
+    handle_clarify,
+    handle_extract,
+    handle_meat_clarify,
+    handle_milk_clarify,
+    handle_results,
+    handle_search,
+)
 
 # ─── Page configuration ───
 st.set_page_config(page_title="Horsens Grocery Saver", layout="centered")
@@ -35,6 +43,7 @@ for key, default in [
     ("results", None),
     ("meat_prefs", {}),
     ("milk_prefs", {}),
+    ("bread_prefs", {}),
     ("api_source", ["Tjek", "Salling"]),
 ]:
     if key not in st.session_state:
@@ -48,6 +57,10 @@ if st.button("🚀 Find Cheapest Deals"):
 # ─── Phase: Clarification ───
 if st.session_state.phase == "clarify":
     handle_clarify()
+
+# ─── Phase: Bread clarification ───
+if st.session_state.phase == "bread_clarify":
+    handle_bread_clarify()
 
 # ─── Phase: Meat clarification ───
 if st.session_state.phase == "meat_clarify":

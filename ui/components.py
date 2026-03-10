@@ -157,6 +157,20 @@ def render_meat_clarification(meat_items: list[str]) -> None:
         )
 
 
+def render_bread_clarification(bread_items: list[str]) -> None:
+    """Render radio buttons asking the user whether they want frozen or normal bread."""
+    st.subheader("🍞 Fresh or Frozen Bread?")
+    st.write(
+        "Would you like to see normal (fresh) bread or frozen bread deals?"
+    )
+    for item in bread_items:
+        st.radio(
+            f"For **{item}**, what do you prefer?",
+            ["Normal (fresh) bread", "Frozen bread", "Both"],
+            key=f"bread_{item}",
+        )
+
+
 def render_milk_clarification(milk_items: list[str]) -> None:
     """Render radio buttons asking the user which Danish milk type they prefer."""
     from services.offer_service import MILK_TYPES

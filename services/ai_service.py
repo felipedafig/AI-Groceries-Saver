@@ -21,6 +21,9 @@ def extract_grocery_items(user_text: str) -> dict[str, Any]:
         '- "items": list of clear, specific grocery item names in Danish\n'
         '- "ambiguous": dict where each key is an ambiguous term and value '
         "is a list of 2-3 possible specific meanings in Danish\n\n"
+        "Special rules:\n"
+        "- If the user asks for 'bread' or 'brød', ALWAYS treat it as ambiguous "
+        "and offer these specific options: ['Brød (Frisk)', 'Brød (Frost)']\n\n"
         'Example — if input is "æbler, mælk" and æbler is ambiguous:\n'
         '{{"items": ["mælk"], "ambiguous": {{"æbler": ["æbler (frugt)", "æblejuice"]}}}}\n\n'
         "If nothing is ambiguous:\n"
@@ -65,7 +68,9 @@ def filter_offers_by_ai(query: str, headings: list[str]) -> list[str]:
         "- Ready meals, snacks, candy, sauces, salads, and dressings that "
         "  happen to contain the keyword are NOT matches.\n"
         "- The product should be the raw/plain form of the ingredient unless "
-        "  the query specifically asks for something processed.\n\n"
+        "  the query specifically asks for something processed.\n"
+        "- For 'bread' (brød), match actual bread/buns/rolls, NOT bread mixes, "
+        "  flour, or baking ingredients (e.g., 'brødblanding', 'mel' are NOT bread).\n\n"
         f"Headings:\n{json.dumps(headings, ensure_ascii=False)}\n\n"
         "Return ONLY a JSON list of matching heading strings.  "
         "If none match, return [].  No explanation."
