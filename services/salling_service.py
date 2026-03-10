@@ -42,6 +42,7 @@ def fetch_food_waste_deals(store_id: str) -> List[Dict]:
                     "currency": offer.get("currency", "DKK"),
                     "store": store_name,
                     "image": product.get("image"),
+                    "stock_unit": offer.get("stockUnit"),  # 'each' or 'kg'
                     "expires": offer.get("endTime"),
                     "is_food_waste": True,
                     "dealer_id": "salling_food_waste" # Internal marker

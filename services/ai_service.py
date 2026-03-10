@@ -44,21 +44,41 @@ def extract_grocery_items(user_text: str) -> dict[str, Any]:
 def filter_offers_by_ai(query: str, headings: list[str]) -> list[str]:
     """Ask the AI which product headings actually match the grocery *query*.
 
+    Uses a detailed prompt to avoid false positives where a keyword
+    appears inside an unrelated product name (e.g. "mælk" inside
+    "MÆLKESNACK MUNCHMALLOW").
+
     Returns:
         A list of matching heading strings.
     """
     prompt = (
-        f"From these product names, which ones are actually '{query}' "
-        f"(the grocery item)?\nProducts: {headings}\n"
-        "Return ONLY a JSON list of matching product names. "
-        "If none match, return []."
+        "You are a grocery shopping assistant.  The user has a shopping "
+        f"list and wants to buy: **{query}**\n\n"
+        "Below is a list of supermarket offer headings.  Return ONLY the "
+        "headings that a shopper would reasonably buy to fulfil the item "
+        f"'{query}' on their list.\n\n"
+        "Rules:\n"
+        "- Match the BASE ingredient, not products that merely contain the word.\n"
+        "  Example: 'mælk' (milk) → accept 'ARLA LETMÆLK 1L', reject 'MÆLKESNACK MUNCHMALLOW'.\n"
+        "  Example: 'æg' (eggs) → accept 'FRITGÅENDE ÆG 10PK', reject 'ÆG & BACON SALAT'.\n"
+        "  Example: 'kylling' (chicken) → accept 'KYLLINGEBRYST 500G', reject 'KYLLING WOK GODT BEGYNDT'.\n"
+        "- Ready meals, snacks, candy, sauces, salads, and dressings that "
+        "  happen to contain the keyword are NOT matches.\n"
+        "- The product should be the raw/plain form of the ingredient unless "
+        "  the query specifically asks for something processed.\n\n"
+        f"Headings:\n{json.dumps(headings, ensure_ascii=False)}\n\n"
+        "Return ONLY a JSON list of matching heading strings.  "
+        "If none match, return [].  No explanation."
     )
     try:
         resp = AI_MODEL.generate_content(prompt)
         raw = _strip_markdown_fences(resp.text.strip())
-        return json.loads(raw)
+        result = json.loads(raw)
+        # Ensure we only return headings that were actually in the input
+        valid = set(headings)
+        return [h for h in result if h in valid]
     except Exception:
-        return []
+        return headings  # fail-open: return all if AI is unavailable
 
 
 # ── private helpers ──────────────────────────────────────────────────

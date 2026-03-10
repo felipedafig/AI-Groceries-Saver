@@ -97,12 +97,13 @@ def search_offers(query: str, dealer_ids: set[str]) -> list[dict]:
             "heading": fw["heading"],
             "pricing": {"price": fw["price"], "currency": fw["currency"]},
             "branding": {"name": fw["store"]},
-            "images": {"view": fw["image"]} if fw["image"] else None,
+            "images": {"thumb": fw["image"], "view": fw["image"]} if fw.get("image") else {},
             "run_from": datetime.now(timezone.utc).isoformat(),
             "run_till": fw["expires"] or (datetime.now(timezone.utc).replace(hour=23, minute=59)).isoformat(),
             "dealer_id": fw["dealer_id"],
             "is_food_waste": True, # Custom flag
-            "original_price": fw["original_price"]
+            "original_price": fw["original_price"],
+            "stock_unit": fw.get("stock_unit"),  # 'each' or 'kg'
         })
 
     return tjek_offers + converted_food_waste
@@ -111,7 +112,10 @@ def search_offers(query: str, dealer_ids: set[str]) -> list[dict]:
 def filter_relevant(query: str, offers: list[dict]) -> list[dict]:
     """Keep only offers that genuinely match *query*.
 
-    Uses keyword matching first; falls back to an AI call for tricky cases.
+    Steps:
+      1. Keyword pre-filter to narrow candidates.
+      2. AI validation to remove false positives (e.g. "MÆLKESNACK"
+         when the user asked for "mælk").
     """
     if not offers:
         return []
@@ -119,19 +123,24 @@ def filter_relevant(query: str, offers: list[dict]) -> list[dict]:
     q = query.lower().strip()
     q_words = [w for w in q.split() if len(w) > 2]
 
-    matched = [
+    # Step 1 — cheap keyword pre-filter
+    candidates = [
         o
         for o in offers
         if q in o["heading"].lower()
         or any(w in o["heading"].lower() for w in q_words)
     ]
-    if matched:
-        return matched
 
-    # AI fallback
-    headings = [o["heading"] for o in offers[:10]]
-    valid_names = filter_offers_by_ai(query, headings)
-    return [o for o in offers if o["heading"] in valid_names]
+    # If no keyword hits at all, try AI on the full list
+    if not candidates:
+        candidates = offers
+
+    # Step 2 — AI validation on all candidates (batch up to 25)
+    headings = [o["heading"] for o in candidates[:25]]
+    valid_names = set(filter_offers_by_ai(query, headings))
+    validated = [o for o in candidates if o["heading"] in valid_names]
+
+    return validated
 
 
 def is_meat_item(query: str) -> bool:

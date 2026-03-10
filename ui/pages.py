@@ -193,7 +193,7 @@ def _search_items_with_spinners(
     item_results: list[ItemResult] = []
 
     for item in items:
-        with st.spinner(f"Searching for {item}..."):
+        with st.spinner(f"🔍 Searching & verifying deals for {item}..."):
             offers = search_offers(item, nearby_ids)
             relevant = filter_relevant(item, offers)
 

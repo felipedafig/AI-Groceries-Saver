@@ -13,7 +13,7 @@ load_dotenv()
 # ─── API Keys ───
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 TJEK_API_KEY: str = os.getenv("TJEK_API_KEY", "")
-SALLING_API_KEY: str = os.getenv("SALLING_API_KEY", "SG_APIM_S4K1H4NJ9YY6FSXM366FT29GTWZA0R5R12DKYS30HVX5TTFMFV7G")
+SALLING_API_KEY: str = os.getenv("SALLING_API_KEY", "")
 
 # ─── Salling Group Food Waste Config ───
 SALLING_BASE_URL: str = "https://api.sallinggroup.com/v1"
