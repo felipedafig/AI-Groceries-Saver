@@ -1,7 +1,3 @@
-"""
-Offer service — searches, filters, and selects the best grocery offers.
-"""
-
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
@@ -24,20 +20,12 @@ from services.salling_service import fetch_food_waste_deals
 from utils.pricing import offer_sort_key
 from utils.time_utils import parse_time
 
-# ─── Reusable HTTP session for Tjek API (connection pooling) ─────────
-
 _tjek_session = requests.Session()
 _tjek_session.headers["X-Api-Key"] = TJEK_API_KEY
 
 
-@st.cache_data(ttl=300)  # Cache Tjek search results for 5 minutes
+@st.cache_data(ttl=300)
 def _cached_tjek_search(query: str) -> list[dict]:
-    """Fetch offers from the Tjek API with a short cache.
-
-    Offers rotate slowly (weekly), so a 5-minute cache avoids redundant
-    network round-trips when the user re-searches or searches overlapping
-    items, without serving stale data.
-    """
     url = (
         f"{TJEK_BASE_URL}/offers/search"
         f"?query={query}&r_lat={USER_LAT}&r_lng={USER_LNG}"
@@ -46,7 +34,6 @@ def _cached_tjek_search(query: str) -> list[dict]:
     resp = _tjek_session.get(url, timeout=10).json()
     return resp if isinstance(resp, list) else []
 
-# ─── Meat / processed-food constants ─────────────────────────────────
 
 MEAT_TERMS: set[str] = {
     "chicken", "kylling",
@@ -57,7 +44,6 @@ MEAT_TERMS: set[str] = {
     "steak", "bøf",
 }
 
-# ─── Milk type constants ────────────────────────────────────────────
 
 MILK_TERMS: set[str] = {"milk", "mælk"}
 
@@ -91,10 +77,7 @@ NON_BREAD_KEYWORDS: list[str] = [
 def prefetch_food_waste(
     dealer_ids: set[str], api_source: list[str] | None = None
 ) -> list[dict]:
-    """Pre-fetch all food waste deals for the selected stores.
-
-    Call once before parallel item processing to avoid redundant lookups.
-    """
+    """Pre-fetch all food waste deals for the selected stores."""
     if api_source is None:
         api_source = ["Tjek", "Salling"]
     if "Salling" not in api_source:
@@ -108,13 +91,7 @@ def prefetch_food_waste(
 
 
 def search_offers(query: str, dealer_ids: set[str], *, api_source: list[str] | None = None, _prefetched_food_waste: list[dict] | None = None) -> list[dict]:
-    """Search for offers matching *query* near the user.
-
-    *api_source* is a list of enabled sources (``"Tjek"``, ``"Salling"``).
-    When omitted both are used.
-
-    Only offers from the specified dealer IDs are returned.
-    """
+    """Search for offers matching query near the user."""
     if api_source is None:
         api_source = ["Tjek", "Salling"]
 
@@ -124,7 +101,6 @@ def search_offers(query: str, dealer_ids: set[str], *, api_source: list[str] | N
         all_offers = _cached_tjek_search(query)
         tjek_offers = [o for o in all_offers if o.get("dealer_id") in dealer_ids]
 
-    # ─── Integrated Salling Group Food Waste deals ───
     if _prefetched_food_waste is not None:
         food_waste_offers = _prefetched_food_waste
     else:
@@ -135,13 +111,12 @@ def search_offers(query: str, dealer_ids: set[str], *, api_source: list[str] | N
             if "93f13" in dealer_ids:
                 food_waste_offers.extend(fetch_food_waste_deals(BILKA_STORE_ID))
 
-    # Convert food waste deals to Tjek-like structure for the filtering pipeline
+    # Convert food waste deals to Tjek-like format
     converted_food_waste = []
     for fw in food_waste_offers:
-        # Check if the query matches the food waste deal heading
         if query.lower() not in fw["heading"].lower():
             continue
-            
+
         converted_food_waste.append({
             "id": f"fw-{fw['heading']}-{fw['price']}",
             "heading": fw["heading"],
@@ -151,29 +126,22 @@ def search_offers(query: str, dealer_ids: set[str], *, api_source: list[str] | N
             "run_from": datetime.now(timezone.utc).isoformat(),
             "run_till": fw["expires"] or (datetime.now(timezone.utc).replace(hour=23, minute=59)).isoformat(),
             "dealer_id": fw["dealer_id"],
-            "is_food_waste": True, # Custom flag
+            "is_food_waste": True,
             "original_price": fw["original_price"],
-            "stock_unit": fw.get("stock_unit"),  # 'each' or 'kg'
+            "stock_unit": fw.get("stock_unit"),
         })
 
     return tjek_offers + converted_food_waste
 
 
 def filter_relevant(query: str, offers: list[dict]) -> list[dict]:
-    """Keep only offers that genuinely match *query*.
-
-    Steps:
-      1. Keyword pre-filter to narrow candidates.
-      2. AI validation to remove false positives (e.g. "MÆLKESNACK"
-         when the user asked for "mælk").
-    """
+    """Keep only offers that genuinely match the query."""
     if not offers:
         return []
 
     q = query.lower().strip()
     q_words = [w for w in q.split() if len(w) > 2]
 
-    # Step 1 — cheap keyword pre-filter
     candidates = [
         o
         for o in offers
@@ -181,11 +149,9 @@ def filter_relevant(query: str, offers: list[dict]) -> list[dict]:
         or any(w in o["heading"].lower() for w in q_words)
     ]
 
-    # If no keyword hits at all, try AI on the full list
     if not candidates:
         candidates = offers
 
-    # Step 2 — AI validation on all candidates (batch up to 25)
     headings = [o["heading"] for o in candidates[:25]]
     valid_names = set(filter_offers_by_ai(query, headings))
     validated = [o for o in candidates if o["heading"] in valid_names]
@@ -196,22 +162,10 @@ def filter_relevant(query: str, offers: list[dict]) -> list[dict]:
 def batch_filter_relevant(
     items_with_offers: dict[str, list[dict]],
 ) -> dict[str, list[dict]]:
-    """Filter offers for multiple items using a single AI call.
-
-    Performs the same keyword pre-filter as ``filter_relevant`` for each
-    item, then sends all candidate headings to the AI in one batch
-    request instead of N separate calls.
-
-    Args:
-        items_with_offers: mapping of search term → list of raw offer dicts.
-
-    Returns:
-        mapping of search term → list of relevant offer dicts.
-    """
+    """Filter offers for multiple items using a single AI call."""
     if not items_with_offers:
         return {}
 
-    # Step 1 — cheap keyword pre-filter per item (no AI)
     candidates_map: dict[str, list[dict]] = {}
     for query, offers in items_with_offers.items():
         if not offers:
@@ -231,7 +185,6 @@ def batch_filter_relevant(
 
         candidates_map[query] = candidates[:25]
 
-    # Step 2 — batch AI validation (single Gemini call for all items)
     items_with_headings: dict[str, list[str]] = {
         query: [o["heading"] for o in cands]
         for query, cands in candidates_map.items()
@@ -243,7 +196,6 @@ def batch_filter_relevant(
     else:
         valid_map = {}
 
-    # Step 3 — map AI-approved headings back to offer dicts
     result: dict[str, list[dict]] = {}
     for query, cands in candidates_map.items():
         valid_names = set(valid_map.get(query, []))
@@ -258,31 +210,20 @@ def batch_filter_relevant(
 
 
 def is_meat_item(query: str) -> bool:
-    """Return True if *query* looks like a generic meat search term."""
     return query.lower().strip() in MEAT_TERMS
 
 
 def is_milk_item(query: str) -> bool:
-    """Return True if *query* looks like a generic milk search term."""
-    q = query.lower().strip()
-    return q in MILK_TERMS
+    return query.lower().strip() in MILK_TERMS
 
 
 def is_bread_item(query: str) -> bool:
-    """Return True if *query* looks like a generic bread search term."""
-    q = query.lower().strip()
-    return q in {"bread", "brød"}
+    return query.lower().strip() in {"bread", "brød"}
 
 
 def filter_milk_offers(
     offers: list[dict], preferred_type: str | None
 ) -> list[dict]:
-    """Filter milk offers by the preferred Danish milk type.
-
-    If *preferred_type* is given, keep only offers whose heading contains
-    that type.  If nothing matches, return the original list so the user
-    still sees prices for other milk types.
-    """
     if not preferred_type:
         return offers
     filtered = [
@@ -294,7 +235,6 @@ def filter_milk_offers(
 def filter_processed_products(
     offers: list[dict], allow_processed: bool
 ) -> list[dict]:
-    """Remove processed / boxed meat products when *allow_processed* is False."""
     if allow_processed:
         return offers
     return [
@@ -304,7 +244,6 @@ def filter_processed_products(
 
 
 def filter_non_bread(offers: list[dict]) -> list[dict]:
-    """Remove bread mixes and baking ingredients from bread searches."""
     return [
         o for o in offers
         if not any(kw in o["heading"].lower() for kw in NON_BREAD_KEYWORDS)
@@ -312,16 +251,11 @@ def filter_non_bread(offers: list[dict]) -> list[dict]:
 
 
 def filter_bread_type(offers: list[dict], preferred_type: str) -> list[dict]:
-    """Filter bread offers by whether the user wants frozen or fresh.
-
-    *preferred_type* is one of "Normal (fresh) bread", "Frozen bread", "Both".
-    """
     if preferred_type == "Both":
         return offers
 
     # Frozen bread keywords in Danish
     frozen_keywords = ["frost", "frossen", "frosset", "bake-off", "bake off"]
-
     if preferred_type == "Frozen bread":
         filtered = [
             o for o in offers
@@ -330,7 +264,6 @@ def filter_bread_type(offers: list[dict], preferred_type: str) -> list[dict]:
         return filtered if filtered else offers
 
     if preferred_type == "Normal (fresh) bread":
-        # Keep items that DON'T contain frozen keywords
         filtered = [
             o for o in offers
             if not any(kw in o["heading"].lower() for kw in frozen_keywords)
@@ -343,7 +276,6 @@ def filter_bread_type(offers: list[dict], preferred_type: str) -> list[dict]:
 def separate_current_and_future_offers(
     offers: list[dict], now: datetime | None = None
 ) -> tuple[list[dict], list[dict]]:
-    """Partition offers into currently-active and future lists."""
     if now is None:
         now = datetime.now(timezone.utc)
     current: list[dict] = []
@@ -357,12 +289,10 @@ def separate_current_and_future_offers(
 
 
 def find_best_current_offer(offers: list[dict]) -> Optional[dict]:
-    """Return the offer with the lowest effective price, or None."""
     return min(offers, key=offer_sort_key) if offers else None
 
 
 def find_best_future_offer(offers: list[dict]) -> Optional[dict]:
-    """Return the future offer with the lowest effective price, or None."""
     return min(offers, key=offer_sort_key) if offers else None
 
 
@@ -372,17 +302,6 @@ def find_best_offers(
     meat_prefs: dict[str, bool] | None = None,
     milk_prefs: dict[str, str] | None = None,
 ) -> tuple[list[ItemResult], float]:
-    """For each item find the best current and best future offer.
-
-    Args:
-        items: Grocery item names to search for.
-        nearby_ids: Set of dealer IDs to restrict results.
-        meat_prefs: Mapping of item→allow_processed for meat items.
-        milk_prefs: Mapping of item→preferred_type for milk items.
-
-    Returns:
-        A tuple of (item_results, total_estimated_price).
-    """
     if meat_prefs is None:
         meat_prefs = {}
     if milk_prefs is None:

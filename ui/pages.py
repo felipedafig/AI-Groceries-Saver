@@ -1,7 +1,3 @@
-"""
-Streamlit page-level logic for each phase of the application.
-"""
-
 import streamlit as st
 
 from models.schemas import ItemResult, SearchResults
@@ -35,7 +31,6 @@ from ui.components import (
 
 
 def handle_extract(user_list: str, selected_dealers: list[str]) -> None:
-    """Phase: extract grocery items from the user's free-text list."""
     if not user_list:
         st.error("Write something first!")
         return
@@ -65,7 +60,6 @@ def handle_extract(user_list: str, selected_dealers: list[str]) -> None:
 
 
 def handle_clarify() -> None:
-    """Phase: let the user disambiguate vague items."""
     st.subheader("🤔 Did you mean...")
 
     for term, options in st.session_state.ambiguous.items():
@@ -82,7 +76,6 @@ def handle_clarify() -> None:
 
 
 def handle_bread_clarify() -> None:
-    """Phase: ask whether the user wants frozen or normal bread."""
     bread_items = [i for i in st.session_state.clear_items if is_bread_item(i)]
 
     render_bread_clarification(bread_items)
@@ -98,7 +91,6 @@ def handle_bread_clarify() -> None:
 
 
 def handle_meat_clarify() -> None:
-    """Phase: ask whether the user wants processed products for meat items."""
     meat_items = [i for i in st.session_state.clear_items if is_meat_item(i)]
 
     render_meat_clarification(meat_items)
@@ -114,7 +106,6 @@ def handle_meat_clarify() -> None:
 
 
 def handle_milk_clarify() -> None:
-    """Phase: ask for milk type preferences."""
     milk_items = [i for i in st.session_state.clear_items if is_milk_item(i)]
 
     render_milk_clarification(milk_items)
@@ -131,7 +122,6 @@ def handle_milk_clarify() -> None:
 
 
 def handle_search(selected_dealers: list[str], api_source: list[str] | None = None) -> None:
-    """Phase: query the API for offers and store results in session state."""
     items = st.session_state.clear_items
     st.session_state.phase = "results"
 
@@ -166,10 +156,6 @@ def handle_search(selected_dealers: list[str], api_source: list[str] | None = No
 
 
 def handle_results() -> None:
-    """Phase: display search results, best deals, and upcoming discounts.
-
-    Order: Best Deals → Upcoming Discounts → Total Estimated Price.
-    """
     data: SearchResults = st.session_state.results
     if data is None:
         return
@@ -184,11 +170,8 @@ def handle_results() -> None:
     render_upcoming_discounts(data.items)
 
 
-# ── private helpers ──────────────────────────────────────────────────
-
 
 def _next_phase_after_clarify() -> str:
-    """Decide whether we need a bread-clarification step or can go to meat."""
     bread_items = [i for i in st.session_state.clear_items if is_bread_item(i)]
     if bread_items:
         return "bread_clarify"
@@ -196,7 +179,6 @@ def _next_phase_after_clarify() -> str:
 
 
 def _next_phase_after_bread() -> str:
-    """Decide whether we need a meat-clarification step or can go to milk."""
     meat_items = [i for i in st.session_state.clear_items if is_meat_item(i)]
     if meat_items:
         return "meat_clarify"
@@ -204,7 +186,6 @@ def _next_phase_after_bread() -> str:
 
 
 def _next_phase_after_meat() -> str:
-    """Decide whether we need a milk-clarification step or can go to search."""
     milk_items = [i for i in st.session_state.clear_items if is_milk_item(i)]
     if milk_items:
         return "milk_clarify"
@@ -219,18 +200,11 @@ def _search_items_with_spinners(
     bread_prefs: dict[str, str],
     api_source: list[str] | None = None,
 ) -> tuple[list[ItemResult], float]:
-    """Search offers per item with Streamlit spinners for UX feedback.
-
-    Fetches raw offers for all items in parallel, then batch-filters them
-    through a single Gemini AI call (instead of one per item), and finally
-    applies category-specific filters locally.
-    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc)
 
-    # Pre-fetch food waste deals once (avoids redundant lookups per item)
     food_waste = prefetch_food_waste(nearby_ids, api_source)
 
     # ── Step 1: Fetch raw offers for ALL items in parallel (no AI) ──
@@ -247,17 +221,16 @@ def _search_items_with_spinners(
                 item_name, offers = future.result()
                 raw_map[item_name] = offers
 
-    # ── Step 2: Batch-filter ALL items in ONE Gemini call ──
+    # Batch AI filter
     with st.spinner("🤖 Verifying deal relevance..."):
         try:
             filtered_map = batch_filter_relevant(raw_map)
         except RateLimitExceeded:
             raise  # propagate to UI
         except Exception:
-            # fail-open: skip AI filtering
             filtered_map = raw_map
 
-    # ── Step 3: Apply category-specific filters & pick best offers ──
+    # Apply category-specific filters
     item_results: list[ItemResult] = []
     for item in items:
         relevant = filtered_map.get(item, [])

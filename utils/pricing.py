@@ -1,19 +1,12 @@
-"""
-Pricing utility functions.
-"""
-
 import re
 from typing import Optional
 
-# Regex to extract weight/volume from product descriptions like
-# "SF HØNSESALAT 250G", "Arla Minimælk 1L", "Svinekød 0,5KG", etc.
 _QTY_RE = re.compile(
     r"(\d+[.,]?\d*)\s*"
     r"(kg|g|ml|cl|dl|l|liter|stk|pk)\b",
     re.IGNORECASE,
 )
 
-# Map description units → SI base unit + conversion factor
 _UNIT_CONV: dict[str, tuple[str, float]] = {
     "kg":    ("kg", 1.0),
     "g":     ("kg", 0.001),
@@ -28,12 +21,7 @@ _UNIT_CONV: dict[str, tuple[str, float]] = {
 
 
 def _parse_qty_from_heading(heading: str) -> Optional[tuple[float, str]]:
-    """Try to extract a (total_si, si_symbol) tuple from a product heading.
-
-    Examples:
-        "SF HØNSESALAT 250G"  → (0.25, 'kg')
-        "Arla Minimælk 1L"    → (1.0,  'l')
-    """
+    """Extract (total_si, si_symbol) from a product heading."""
     m = _QTY_RE.search(heading)
     if not m:
         return None
@@ -51,24 +39,18 @@ def _parse_qty_from_heading(heading: str) -> Optional[tuple[float, str]]:
 
 
 def calc_unit_price(offer: dict) -> Optional[tuple[float, str]]:
-    """Calculate the unit price for an offer.
-
-    Returns:
-        A tuple of (unit_price, label) e.g. ``(50.0, 'kr/kg')``,
-        or ``None`` if the required quantity data is missing.
-    """
+    """Calculate the unit price for an offer (e.g. kr/kg)."""
     price = offer.get("pricing", {}).get("price")
     if price is None:
         return None
 
-    # ── Salling Group food waste deals ──────────────────────────
+
     if offer.get("is_food_waste"):
         # If the stock unit is 'kg', the price IS the per-kg price
         stock_unit = offer.get("stock_unit")
         if stock_unit and stock_unit.lower() == "kg":
             return (round(price, 2), "kr/kg")
 
-        # Otherwise try to extract quantity from the heading text
         heading = offer.get("heading", "")
         parsed = _parse_qty_from_heading(heading)
         if parsed:
@@ -78,7 +60,6 @@ def calc_unit_price(offer: dict) -> Optional[tuple[float, str]]:
             return (round(unit_price, 2), label_map.get(si_symbol, f"kr/{si_symbol}"))
         return None
 
-    # ── Tjek offers (structured quantity data) ──────────────────
     try:
         q = offer["quantity"]
         si_symbol = q["unit"]["si"]["symbol"]   # 'kg', 'l', or 'pcs'

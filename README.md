@@ -7,7 +7,13 @@ Paste your shopping list in natural language, and the app uses **Gemini AI** to 
 
 ## Screenshots
 
-> _Add screenshots here once the app is running._
+![alt text](images/image.png)
+![alt text](images/image-1.png)
+![alt text](image-2.png)
+![alt text](images/image-3.png)
+![alt text](images/image-4.png)
+![alt text](images/image-5.png)
+![alt text](images/image-6.png)
 
 ---
 
@@ -61,6 +67,7 @@ GroceriesSaver/
 - **Streamlit** — interactive web UI
 - **Google Gemini AI** (`google-generativeai`) — natural-language item extraction
 - **Tjek / etilbudsavis API** — real-time Danish grocery offers
+- **Salling Group API** — food waste offers
 - **Requests** — HTTP client
 - **python-dotenv** — environment variable management
 

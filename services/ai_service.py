@@ -1,7 +1,3 @@
-"""
-AI service — handles all interactions with the Gemini generative model.
-"""
-
 import json
 import re
 from typing import Any
@@ -13,11 +9,7 @@ from utils.rate_limiter import gemini_limiter, RateLimitExceeded
 
 
 def extract_grocery_items(user_text: str) -> dict[str, Any]:
-    """Use Gemini to extract grocery items from a free-text Danish shopping list.
-
-    Returns:
-        A dict with keys ``"items"`` (list[str]) and ``"ambiguous"`` (dict).
-    """
+    """Use Gemini to extract grocery items from a Danish shopping list."""
     prompt = (
         f"Extract grocery items from this Danish shopping list: '{user_text}'\n"
         "Return a JSON object with exactly two keys:\n"
@@ -34,9 +26,8 @@ def extract_grocery_items(user_text: str) -> dict[str, Any]:
         "Return ONLY valid JSON, no markdown fences."
     )
 
-    # ── Rate-limit check ──
     session_id = st.session_state.get("_rate_limit_id", "global")
-    gemini_limiter.check(session_id)  # raises RateLimitExceeded
+    gemini_limiter.check(session_id)
 
     resp = AI_MODEL.generate_content(prompt)
     raw = _strip_markdown_fences(resp.text.strip())
@@ -52,15 +43,7 @@ def extract_grocery_items(user_text: str) -> dict[str, Any]:
 
 
 def filter_offers_by_ai(query: str, headings: list[str]) -> list[str]:
-    """Ask the AI which product headings actually match the grocery *query*.
-
-    Uses a detailed prompt to avoid false positives where a keyword
-    appears inside an unrelated product name (e.g. "mælk" inside
-    "MÆLKESNACK MUNCHMALLOW").
-
-    Returns:
-        A list of matching heading strings.
-    """
+    """Ask AI which product headings actually match the grocery query."""
     prompt = (
         "You are a grocery shopping assistant.  The user has a shopping "
         f"list and wants to buy: **{query}**\n\n"
@@ -83,42 +66,27 @@ def filter_offers_by_ai(query: str, headings: list[str]) -> list[str]:
         "If none match, return [].  No explanation."
     )
     try:
-        # ── Rate-limit check ──
         session_id = st.session_state.get("_rate_limit_id", "global")
-        gemini_limiter.check(session_id)  # raises RateLimitExceeded
+        gemini_limiter.check(session_id)
 
         resp = AI_MODEL.generate_content(prompt)
         raw = _strip_markdown_fences(resp.text.strip())
         result = json.loads(raw)
-        # Ensure we only return headings that were actually in the input
         valid = set(headings)
         return [h for h in result if h in valid]
     except RateLimitExceeded:
-        raise  # propagate rate-limit errors to the UI
+        raise
     except Exception:
-        return headings  # fail-open: return all if AI is unavailable
+        return headings
 
 
 def batch_filter_offers_by_ai(
     items_with_headings: dict[str, list[str]],
 ) -> dict[str, list[str]]:
-    """Filter offers for multiple grocery items in a single Gemini call.
-
-    Instead of calling the AI once per item, this sends all items and
-    their candidate headings in one prompt and returns the filtered
-    headings grouped by item.
-
-    Args:
-        items_with_headings: mapping of search term → list of candidate
-            offer heading strings.
-
-    Returns:
-        mapping of search term → list of *relevant* heading strings.
-    """
+    """Filter offers for multiple grocery items in a single Gemini call."""
     if not items_with_headings:
         return {}
 
-    # Build a compact payload: item → headings list
     payload: dict[str, list[str]] = {
         item: headings for item, headings in items_with_headings.items()
     }
@@ -147,7 +115,6 @@ def batch_filter_offers_by_ai(
     )
 
     try:
-        # ── Rate-limit check ──
         session_id = st.session_state.get("_rate_limit_id", "global")
         gemini_limiter.check(session_id)
 
@@ -155,7 +122,6 @@ def batch_filter_offers_by_ai(
         raw = _strip_markdown_fences(resp.text.strip())
         result = json.loads(raw)
 
-        # Validate: keep only headings that were actually in the input
         filtered: dict[str, list[str]] = {}
         for item, headings in items_with_headings.items():
             valid = set(headings)
@@ -165,22 +131,16 @@ def batch_filter_offers_by_ai(
     except RateLimitExceeded:
         raise
     except Exception:
-        # fail-open: return all headings unfiltered
         return dict(items_with_headings)
 
 
-# ── private helpers ──────────────────────────────────────────────────
-
-
 def _strip_markdown_fences(text: str) -> str:
-    """Remove markdown code-block fences from AI responses."""
     text = re.sub(r"^```\w*\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
     return text.strip()
 
 
 def _fallback_parse(raw: str) -> dict[str, Any]:
-    """Best-effort parse when the AI response is not well-formed JSON."""
     try:
         if raw.startswith("["):
             items = json.loads(raw)

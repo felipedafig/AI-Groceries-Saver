@@ -1,7 +1,3 @@
-"""
-Reusable Streamlit UI components.
-"""
-
 import streamlit as st
 from datetime import datetime, timezone
 
@@ -12,7 +8,6 @@ from utils.time_utils import parse_time
 
 
 def render_store_filters() -> list[str]:
-    """Render store checkboxes and return the selected dealer IDs."""
     st.markdown("**Filter Stores:**")
     cols = st.columns(len(STORES))
     selected: list[str] = []
@@ -23,8 +18,7 @@ def render_store_filters() -> list[str]:
 
 
 def render_api_source_filter() -> list[str]:
-    """Render checkboxes for the data sources (Tjek and Salling)."""
-    st.write("")  # Add vertical spacing
+    st.write("")
     st.markdown("**Data Source:**")
     cols = st.columns([1.2, 1.8, 4])
     selected: list[str] = []
@@ -36,7 +30,6 @@ def render_api_source_filter() -> list[str]:
 
 
 def render_nearby_stores(stores: dict[str, dict]) -> None:
-    """Display the list of nearby stores inside an expander."""
     if not stores:
         return
     with st.expander("📍 Nearby Stores", expanded=False):
@@ -47,7 +40,6 @@ def render_nearby_stores(stores: dict[str, dict]) -> None:
 
 
 def render_best_deals(item_results: list[ItemResult]) -> None:
-    """Render the *Best Deals* section for all items (without total)."""
     st.subheader("🏷️ Best Deals")
 
     for result in item_results:
@@ -59,12 +51,7 @@ def render_best_deals(item_results: list[ItemResult]) -> None:
 
 
 def render_upcoming_discounts(item_results: list[ItemResult]) -> None:
-    """Render the *Upcoming Discounts* section.
-
-    Shows future offers that are cheaper than the current best deal for
-    each item.  Items already shown as best current deals are not
-    duplicated here — only the future saving opportunity is highlighted.
-    """
+    """Show future offers cheaper than the current best deal."""
     now = datetime.now(timezone.utc)
     upcoming: list[dict] = []
 
@@ -80,8 +67,7 @@ def render_upcoming_discounts(item_results: list[ItemResult]) -> None:
         fu = calc_unit_price(best_future)
         cu = calc_unit_price(best_current) if best_current else None
 
-        # Compare using unit prices when both offers have them;
-        # fall back to shelf prices when neither (or only one) does.
+        # Compare unit prices when available, otherwise shelf prices
         if fu and cu:
             is_better = fu[0] < cu[0]
         else:
@@ -94,7 +80,6 @@ def render_upcoming_discounts(item_results: list[ItemResult]) -> None:
             price_str = f"{fp} kr"
             if fu:
                 price_str += f"  ·  {fu[0]} {fu[1]}"
-
             upcoming.append(
                 {
                     "query": result.query,
@@ -124,7 +109,6 @@ def render_upcoming_discounts(item_results: list[ItemResult]) -> None:
             source = _source_badge(deal) if deal.get("is_food_waste") else "📰 *Tjek*"
             st.markdown(f"**{deal['query'].title()}**")
 
-            # Show how much cheaper vs current best (unit price or shelf)
             fu = deal.get("unit_price")
             cu = deal.get("current_unit_price")
             if fu and cu:
@@ -142,7 +126,6 @@ def render_upcoming_discounts(item_results: list[ItemResult]) -> None:
 
 
 def render_meat_clarification(meat_items: list[str]) -> None:
-    """Render radio buttons asking the user whether to include processed products."""
     st.subheader("🥩 Fresh Meat or Processed?")
     st.write(
         "Some items on your list could match processed products "
@@ -158,7 +141,6 @@ def render_meat_clarification(meat_items: list[str]) -> None:
 
 
 def render_bread_clarification(bread_items: list[str]) -> None:
-    """Render radio buttons asking the user whether they want frozen or normal bread."""
     st.subheader("🍞 Fresh or Frozen Bread?")
     st.write(
         "Would you like to see normal (fresh) bread or frozen bread deals?"
@@ -172,7 +154,6 @@ def render_bread_clarification(bread_items: list[str]) -> None:
 
 
 def render_milk_clarification(milk_items: list[str]) -> None:
-    """Render radio buttons asking the user which Danish milk type they prefer."""
     from services.offer_service import MILK_TYPES
 
     st.subheader("🥛 Which Type of Milk?")
@@ -180,7 +161,6 @@ def render_milk_clarification(milk_items: list[str]) -> None:
         "Danish milk comes in several standard types. "
         "Pick your preferred fat content, or choose **Any** to see all deals."
     )
-
     options = ["Any"] + list(MILK_TYPES.keys())
 
     for item in milk_items:
@@ -191,11 +171,8 @@ def render_milk_clarification(milk_items: list[str]) -> None:
         )
 
 
-# ── private helpers ──────────────────────────────────────────────────
-
 
 def _render_single_deal(result: ItemResult) -> None:
-    """Render one item's best current deal."""
     item = result.query
     best = result.best_current
 
@@ -210,7 +187,6 @@ def _render_single_deal(result: ItemResult) -> None:
         if up:
             price_str += f"  ·  {up[0]} {up[1]}"
 
-        # Source badge
         source_badge = _source_badge(best)
 
         st.write(
@@ -223,7 +199,6 @@ def _render_single_deal(result: ItemResult) -> None:
 
 
 def _source_badge(offer: dict) -> str:
-    """Return a coloured badge string indicating the data source."""
     if offer.get("is_food_waste"):
         orig = offer.get("original_price")
         savings = ""
