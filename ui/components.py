@@ -30,7 +30,7 @@ def render_api_source_filter() -> list[str]:
     selected: list[str] = []
     if cols[0].checkbox("📰 Tjek API", value=True):
         selected.append("Tjek")
-    if cols[1].checkbox("🛒 Salling Group API", value=True):
+    if cols[1].checkbox("♻️ Salling Group API", value=True):
         selected.append("Salling")
     return selected
 
