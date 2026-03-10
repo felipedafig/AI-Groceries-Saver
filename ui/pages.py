@@ -25,7 +25,6 @@ from ui.components import (
     render_meat_clarification,
     render_milk_clarification,
     render_nearby_stores,
-    render_total_price,
     render_upcoming_discounts,
 )
 
@@ -106,7 +105,7 @@ def handle_milk_clarify() -> None:
         st.rerun()
 
 
-def handle_search(selected_dealers: list[str]) -> None:
+def handle_search(selected_dealers: list[str], api_source: list[str] | None = None) -> None:
     """Phase: query the API for offers and store results in session state."""
     items = st.session_state.clear_items
     st.session_state.phase = "results"
@@ -127,7 +126,7 @@ def handle_search(selected_dealers: list[str]) -> None:
         milk_prefs = getattr(st.session_state, "milk_prefs", {}) or {}
 
         item_results, total_price = _search_items_with_spinners(
-            items, nearby_ids, meat_prefs, milk_prefs
+            items, nearby_ids, meat_prefs, milk_prefs, api_source
         )
 
         st.session_state.results = SearchResults(
@@ -157,7 +156,6 @@ def handle_results() -> None:
 
     render_best_deals(data.items)
     render_upcoming_discounts(data.items)
-    render_total_price(data.total)
 
 
 # ── private helpers ──────────────────────────────────────────────────
@@ -184,6 +182,7 @@ def _search_items_with_spinners(
     nearby_ids: set[str],
     meat_prefs: dict[str, bool],
     milk_prefs: dict[str, str],
+    api_source: list[str] | None = None,
 ) -> tuple[list[ItemResult], float]:
     """Search offers per item with Streamlit spinners for UX feedback."""
     from datetime import datetime, timezone
@@ -194,7 +193,7 @@ def _search_items_with_spinners(
 
     for item in items:
         with st.spinner(f"🔍 Searching & verifying deals for {item}..."):
-            offers = search_offers(item, nearby_ids)
+            offers = search_offers(item, nearby_ids, api_source=api_source)
             relevant = filter_relevant(item, offers)
 
         # Apply processed-food filter for meat items

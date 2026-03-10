@@ -58,32 +58,40 @@ PROCESSED_KEYWORDS: list[str] = [
 ]
 
 
-def search_offers(query: str, dealer_ids: set[str]) -> list[dict]:
-    """Search the Tjek API for offers matching *query* near the user.
+def search_offers(query: str, dealer_ids: set[str], *, api_source: list[str] | None = None) -> list[dict]:
+    """Search for offers matching *query* near the user.
+
+    *api_source* is a list of enabled sources (``"Tjek"``, ``"Salling"``).
+    When omitted both are used.
 
     Only offers from the specified dealer IDs are returned.
     """
-    url = (
-        f"{TJEK_BASE_URL}/offers/search"
-        f"?query={query}&r_lat={USER_LAT}&r_lng={USER_LNG}"
-        f"&r_radius={RADIUS_M}&limit=30"
-    )
-    resp = requests.get(url, headers={"X-Api-Key": TJEK_API_KEY}).json()
-    if not isinstance(resp, list):
-        tjek_offers = []
-    else:
-        tjek_offers = [o for o in resp if o.get("dealer_id") in dealer_ids]
+    if api_source is None:
+        api_source = ["Tjek", "Salling"]
+
+    tjek_offers: list[dict] = []
+
+    if "Tjek" in api_source:
+        url = (
+            f"{TJEK_BASE_URL}/offers/search"
+            f"?query={query}&r_lat={USER_LAT}&r_lng={USER_LNG}"
+            f"&r_radius={RADIUS_M}&limit=30"
+        )
+        resp = requests.get(url, headers={"X-Api-Key": TJEK_API_KEY}).json()
+        if isinstance(resp, list):
+            tjek_offers = [o for o in resp if o.get("dealer_id") in dealer_ids]
 
     # ─── Integrated Salling Group Food Waste deals ───
     food_waste_offers = []
-    
-    # Only fetch food waste if Netto or Bilka are in the filter
-    # Netto dealer ID in Tjek: 9ba51
-    # Bilka dealer ID in Tjek: 93f13
-    if "9ba51" in dealer_ids:
-        food_waste_offers.extend(fetch_food_waste_deals(NETTO_STORE_ID))
-    if "93f13" in dealer_ids:
-        food_waste_offers.extend(fetch_food_waste_deals(BILKA_STORE_ID))
+
+    if "Salling" in api_source:
+        # Only fetch food waste if Netto or Bilka are in the filter
+        # Netto dealer ID in Tjek: 9ba51
+        # Bilka dealer ID in Tjek: 93f13
+        if "9ba51" in dealer_ids:
+            food_waste_offers.extend(fetch_food_waste_deals(NETTO_STORE_ID))
+        if "93f13" in dealer_ids:
+            food_waste_offers.extend(fetch_food_waste_deals(BILKA_STORE_ID))
 
     # Convert food waste deals to Tjek-like structure for the filtering pipeline
     converted_food_waste = []

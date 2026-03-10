@@ -22,6 +22,19 @@ def render_store_filters() -> list[str]:
     return selected
 
 
+def render_api_source_filter() -> list[str]:
+    """Render checkboxes for the data sources (Tjek and Salling)."""
+    st.write("")  # Add vertical spacing
+    st.markdown("**Data Source:**")
+    cols = st.columns([1.2, 1.8, 4])
+    selected: list[str] = []
+    if cols[0].checkbox("📰 Tjek API", value=True):
+        selected.append("Tjek")
+    if cols[1].checkbox("🛒 Salling Group API", value=True):
+        selected.append("Salling")
+    return selected
+
+
 def render_nearby_stores(stores: dict[str, dict]) -> None:
     """Display the list of nearby stores inside an expander."""
     if not stores:
@@ -42,10 +55,7 @@ def render_best_deals(item_results: list[ItemResult]) -> None:
         st.divider()
 
 
-def render_total_price(total: float) -> None:
-    """Render the total estimated cost metric."""
-    if total > 0:
-        st.metric("Total Estimated Cost", f"{total:.2f} DKK")
+
 
 
 def render_upcoming_discounts(item_results: list[ItemResult]) -> None:
